@@ -58,6 +58,7 @@ Whether you are gaming, rendering, or simply keeping an eye on your system, PC H
 ## ⌨️ Shortcuts
 
 - **Minimize to Tray / Hide:** Click the minimize button or close button on the main dashboard to send it to the System Tray.
+- **Toggle KittyWindow (Widget):** Press `Ctrl + Shift + Space` globally to show/hide the floating widget.
 - **Toggle Compact Mode:** Press `Ctrl + Shift + Alt + Space` globally to switch between Full Dashboard and Compact UI.
 
 ---

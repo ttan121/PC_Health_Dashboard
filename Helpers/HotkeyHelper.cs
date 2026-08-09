@@ -15,40 +15,56 @@ public class HotkeyHelper : IDisposable
     private const uint MOD_ALT = 0x0001;
     private const uint MOD_CONTROL = 0x0002;
     private const uint MOD_SHIFT = 0x0004;
-    private const uint MOD_WIN = 0x0008;
 
     private readonly IntPtr _hwnd;
-    private readonly int _id = 9000;
-    private Action _onHotKeyPressed;
+    private readonly int _idPopup = 9000;
+    private readonly int _idCompact = 9001;
+    
+    private Action _onPopupHotKeyPressed;
+    private Action _onCompactHotKeyPressed;
 
-    public HotkeyHelper(IntPtr hwnd, Action onHotKeyPressed)
+    public HotkeyHelper(IntPtr hwnd, Action onPopupHotKeyPressed, Action onCompactHotKeyPressed)
     {
         _hwnd = hwnd;
-        _onHotKeyPressed = onHotKeyPressed;
+        _onPopupHotKeyPressed = onPopupHotKeyPressed;
+        _onCompactHotKeyPressed = onCompactHotKeyPressed;
         
         HwndSource source = HwndSource.FromHwnd(_hwnd);
         source.AddHook(HwndHook);
 
-        // Register Ctrl + Shift + Space
-        uint modifiers = MOD_CONTROL | MOD_SHIFT;
-        uint key = 0x20; // Space
+        uint keySpace = 0x20; // Space
+        uint keyC = 0x43; // C key (Fallback or alternative)
         
-        RegisterHotKey(_hwnd, _id, modifiers, key);
+        // Register Ctrl + Shift + Space for Popup
+        RegisterHotKey(_hwnd, _idPopup, MOD_CONTROL | MOD_SHIFT, keySpace);
+        
+        // Register Ctrl + Shift + Alt + Space for Compact Mode
+        RegisterHotKey(_hwnd, _idCompact, MOD_CONTROL | MOD_SHIFT | MOD_ALT, keySpace);
     }
 
     private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         const int WM_HOTKEY = 0x0312;
-        if (msg == WM_HOTKEY && wParam.ToInt32() == _id)
+        if (msg == WM_HOTKEY)
         {
-            _onHotKeyPressed?.Invoke();
-            handled = true;
+            int id = wParam.ToInt32();
+            if (id == _idPopup)
+            {
+                _onPopupHotKeyPressed?.Invoke();
+                handled = true;
+            }
+            else if (id == _idCompact)
+            {
+                _onCompactHotKeyPressed?.Invoke();
+                handled = true;
+            }
         }
         return IntPtr.Zero;
     }
 
     public void Dispose()
     {
-        UnregisterHotKey(_hwnd, _id);
+        UnregisterHotKey(_hwnd, _idPopup);
+        UnregisterHotKey(_hwnd, _idCompact);
     }
 }

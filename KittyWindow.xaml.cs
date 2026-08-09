@@ -3,12 +3,6 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
-using LiveChartsCore;
-using LiveChartsCore.SkiaSharpView;
-using LiveChartsCore.Defaults;
-using LiveChartsCore.SkiaSharpView.Painting;
-using LiveChartsCore.SkiaSharpView.Painting.Effects;
-using SkiaSharp;
 using PCHealthDashboard.ViewModels;
 
 namespace PCHealthDashboard;
@@ -16,49 +10,17 @@ namespace PCHealthDashboard;
 public partial class KittyWindow : Window
 {
     private bool _isPinned = true;
-    private readonly ObservableValue _healthValue = new(0);
-    private readonly ObservableValue _remainingValue = new(100);
-    private readonly ObservableCollection<ObservableValue> _popupPingHistory = new();
+
+    private MainViewModel? _vm;
+    private bool _isDragging = false;
+    // Cached status brushes to avoid allocations on every UI refresh
+    private static readonly System.Windows.Media.SolidColorBrush GreenBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#4ade80")!);
+    private static readonly System.Windows.Media.SolidColorBrush AmberBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#f59e0b")!);
+    private static readonly System.Windows.Media.SolidColorBrush RedBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#ef4444")!);
 
     public KittyWindow()
     {
         InitializeComponent();
-
-        // Setup health gauge (own series — cannot share with another chart)
-        PopupHealthChart.Series = new ISeries[]
-        {
-            new PieSeries<ObservableValue>
-            {
-                Values = new[] { _healthValue },
-                InnerRadius = 35,
-                MaxRadialColumnWidth = 8,
-                HoverPushout = 0,
-                Fill = new SolidColorPaint(SKColor.Parse("#4ade80"))
-            },
-            new PieSeries<ObservableValue>
-            {
-                Values = new[] { _remainingValue },
-                InnerRadius = 35,
-                MaxRadialColumnWidth = 8,
-                HoverPushout = 0,
-                Fill = new SolidColorPaint(SKColor.Parse("#1e293b"))
-            }
-        };
-
-        // Setup mini ping sparkline
-        PopupPingChart.Series = new ISeries[]
-        {
-            new LineSeries<ObservableValue>
-            {
-                Values = _popupPingHistory,
-                GeometrySize = 0,
-                Stroke = new SolidColorPaint(SKColor.Parse("#06b6d4")) { StrokeThickness = 1.5f },
-                Fill = null,
-                LineSmoothness = 0.6
-            }
-        };
-        PopupPingChart.XAxes = new[] { new Axis { IsVisible = false } };
-        PopupPingChart.YAxes = new[] { new Axis { IsVisible = false } };
 
         // Position at bottom right
         var workArea = SystemParameters.WorkArea;
@@ -68,15 +30,24 @@ public partial class KittyWindow : Window
 
     public void TogglePopup(MainViewModel vm)
     {
+        _vm = vm;
         if (IsVisible)
         {
             Hide();
+            vm.IsPopupVisible = false;
         }
         else
         {
             SyncAllValues(vm);
             Show();
+            vm.IsPopupVisible = true;
         }
+    }
+
+    // Toggle compact mode via context menu or hotkey
+
+    private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
     }
 
     /// <summary>
@@ -85,85 +56,65 @@ public partial class KittyWindow : Window
     /// </summary>
     public void SyncAllValues(MainViewModel vm)
     {
-        if (!IsVisible) return;
+        // Skip updates while the user is dragging the popup – this drops UI work during move
+        if (_isDragging) return;
 
-        // ── Health Score ──
-        int score = vm.HealthScore;
-        _healthValue.Value = score;
-        _remainingValue.Value = Math.Max(0, 100 - score);
-        GaugeScoreText.Text = score.ToString();
-        ScoreValueText.Text = score.ToString();
-        StatusLabel.Text = score >= 80 ? "Excellent" : score >= 60 ? "Good" : score >= 40 ? "Warning" : "Critical";
+        HealthScoreText.Text = $"{vm.HealthScore} Healthy";
 
         // ── CPU ──
-        PopupCpuTemp.Text = $"{vm.CpuTemp:F0}°C";
-        PopupCpuBar.Value = vm.CpuUsage;
-        PopupCpuPct.Text = $"{vm.CpuUsage:F0}%";
-        CpuDot.Fill = GetStatusBrush(vm.CpuUsage);
+        CpuText.Text = $"{vm.CpuUsage:F0}%";
+        CpuTempText.Text = $"{vm.CpuTemp:F0}°C";
+        CpuFill.Width = new GridLength(vm.CpuUsage, GridUnitType.Star);
+        CpuEmpty.Width = new GridLength(Math.Max(0, 100 - vm.CpuUsage), GridUnitType.Star);
 
         // ── GPU ──
-        PopupGpuTemp.Text = $"{vm.GpuTemp:F0}°C";
-        PopupGpuBar.Value = vm.GpuUsage;
-        PopupGpuPct.Text = $"{vm.GpuUsage:F0}%";
-        GpuDot.Fill = GetStatusBrush(vm.GpuUsage);
+        GpuText.Text = $"{vm.GpuUsage:F0}%";
+        GpuTempText.Text = $"{vm.GpuTemp:F0}°C";
+        GpuVramText.Text = $"VRAM {vm.GpuVram:F1} / 8 GB";
+        GpuFill.Width = new GridLength(vm.GpuUsage, GridUnitType.Star);
+        GpuEmpty.Width = new GridLength(Math.Max(0, 100 - vm.GpuUsage), GridUnitType.Star);
 
         // ── RAM ──
         float ramPct = vm.RamTotal > 0 ? (vm.RamUsed / vm.RamTotal) * 100f : 0;
-        PopupRamDetail.Text = $"{vm.RamUsed:F1} / {vm.RamTotal:F0} GB";
-        PopupRamBar.Value = ramPct;
-        PopupRamPct.Text = $"{ramPct:F0}%";
-        RamDot.Fill = GetStatusBrush(ramPct);
+        RamText.Text = $"{ramPct:F0}%";
+        RamFill.Width = new GridLength(ramPct, GridUnitType.Star);
+        RamEmpty.Width = new GridLength(Math.Max(0, 100 - ramPct), GridUnitType.Star);
 
         // ── Storage ──
         float storagePct = vm.SsdTotalSpace > 0 ? (vm.SsdUsedSpace / vm.SsdTotalSpace) * 100f : 0;
-        PopupStorageDetail.Text = $"SSD Health: {vm.SsdHealth:F0}%";
-        PopupStorageBar.Value = storagePct;
-        PopupStoragePct.Text = $"{storagePct:F0}%";
-        StorageDot.Fill = GetStatusBrush(storagePct);
+        SsdText.Text = $"{storagePct:F0}%";
+        SsdFill.Width = new GridLength(storagePct, GridUnitType.Star);
+        SsdEmpty.Width = new GridLength(Math.Max(0, 100 - storagePct), GridUnitType.Star);
 
         // ── Network ──
-        PopupDownloadText.Text = $"↓ {vm.DownloadMbps:F1} Mbps";
-        PopupUploadText.Text = $"↑ {vm.UploadMbps:F1} Mbps";
+        NetDownText.Text = $"{vm.DownloadMbps:F1} Mbps";
+        NetUpText.Text = $"{vm.UploadMbps:F1} Mbps";
         
-        bool isStable = vm.PingLatency < 100;
-        bool isModerate = vm.PingLatency < 200;
-        
-        NetDot.Fill = isStable 
-            ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4ade80")!) 
-            : isModerate 
-                ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#f59e0b")!) 
-                : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#ef4444")!);
-
-        // Sync sparkline from ViewModel's NetworkSpeedHistory
-        SyncSparkline(vm.NetworkSpeedHistory);
-
-        // ── Footer ──
-        FooterText.Text = score >= 80 ? "All systems are running smoothly." 
-                        : score >= 60 ? "System is running with minor issues." 
-                        : "⚠ Attention needed on some components.";
+        DrawSparkline(vm.NetworkSpeedHistory);
     }
 
-    private void SyncSparkline(ObservableCollection<ObservableValue> source)
+    private void DrawSparkline(ObservableCollection<double> source)
     {
-        // Keep popup sparkline in sync with the main ViewModel's ping history
-        while (_popupPingHistory.Count > source.Count)
-            _popupPingHistory.RemoveAt(_popupPingHistory.Count - 1);
+        if (source.Count == 0) return;
+        
+        double width = 300; // Fixed fallback width for simplicity
+        double height = 32;
 
+        var points = new PointCollection();
+        double max = 1;
+        foreach (var v in source) if (v > max) max = v;
+        
+        double stepX = width / Math.Max(1, source.Count - 1);
+        
         for (int i = 0; i < source.Count; i++)
         {
-            double val = source[i].Value ?? 0;
-            if (i < _popupPingHistory.Count)
-                _popupPingHistory[i].Value = val;
-            else
-                _popupPingHistory.Add(new ObservableValue(val));
+            double val = source[i];
+            double x = i * stepX;
+            double y = height - ((val / max) * height);
+            points.Add(new System.Windows.Point(x, y));
         }
-    }
-
-    private static SolidColorBrush GetStatusBrush(float pct)
-    {
-        if (pct < 70) return new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4ade80")!);
-        if (pct < 90) return new SolidColorBrush((Color)ColorConverter.ConvertFromString("#f59e0b")!);
-        return new SolidColorBrush((Color)ColorConverter.ConvertFromString("#ef4444")!);
+        
+        NetworkSparkline.Points = points;
     }
 
     private void PinButton_Click(object sender, RoutedEventArgs e)
@@ -181,6 +132,21 @@ public partial class KittyWindow : Window
     private void Window_MouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton == MouseButton.Left)
-            DragMove();
+        {
+            _isDragging = true;
+            try
+            {
+                DragMove();
+            }
+            finally
+            {
+                _isDragging = false;
+            }
+        }
+    }
+
+    private void Window_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        _isDragging = false;
     }
 }

@@ -1,9 +1,85 @@
-﻿<Application x:Class="PCHealthDashboard.App"
+<Application x:Class="PCHealthDashboard.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:PCHealthDashboard"
+             xmlns:helpers="clr-namespace:PCHealthDashboard.Helpers"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+        <!-- Converters -->
+        <helpers:SeverityToColorConverter x:Key="SeverityToColorConverter"/>
+        <helpers:StringToColorBrushConverter x:Key="StringToColorBrushConverter"/>
+        <helpers:StringToBoolConverter x:Key="StringToBoolConverter"/>
+
+        <!-- COLOR TOKENS -->
+        <SolidColorBrush x:Key="SurfacePrimary" Color="#0a0c10" />
+        <SolidColorBrush x:Key="SurfaceSecondary" Color="#11151c" />
+        <SolidColorBrush x:Key="BorderNeutral" Color="#1e293b" />
+        
+        <SolidColorBrush x:Key="TextPrimary" Color="#f8fafc" />
+        <SolidColorBrush x:Key="TextSecondary" Color="#94a3b8" />
+        <SolidColorBrush x:Key="TextMuted" Color="#475569" />
+        
+        <SolidColorBrush x:Key="SemanticHealthy" Color="#10b981" />
+        <SolidColorBrush x:Key="SemanticWarning" Color="#f59e0b" />
+        <SolidColorBrush x:Key="SemanticCritical" Color="#ef4444" />
+        <SolidColorBrush x:Key="SemanticInfo" Color="#3b82f6" />
+
+        <!-- TYPOGRAPHY TOKENS -->
+        <FontFamily x:Key="FontBody">Segoe UI Variable, Segoe UI, Arial</FontFamily>
+        
+        <Style x:Key="TextDisplay" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource FontBody}"/>
+            <Setter Property="FontSize" Value="48"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+        </Style>
+
+        <Style x:Key="TextHeading" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource FontBody}"/>
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+        </Style>
+
+        <Style x:Key="TextSectionTitle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource FontBody}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+        </Style>
+
+        <Style x:Key="TextMetricValue" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource FontBody}"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+        </Style>
+
+        <Style x:Key="TextBody" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource FontBody}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+        </Style>
+
+        <Style x:Key="TextLabel" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource FontBody}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}"/>
+        </Style>
+
+        <!-- FLAT PROGRESS BAR STYLE -->
+        <Style TargetType="ProgressBar">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Border x:Name="PART_Track" Background="{TemplateBinding Background}" CornerRadius="2">
+                            <Border x:Name="PART_Indicator" Background="{TemplateBinding Foreground}" CornerRadius="2" HorizontalAlignment="Left" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
     </Application.Resources>
 </Application>

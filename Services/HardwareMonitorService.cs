@@ -55,9 +55,32 @@ public class HardwareMonitorService : IDisposable
         _ram = _computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Memory);
     }
 
-    public void Update()
+    private int _updateCounter = 0;
+
+    public void Update(bool fullUpdate = true)
     {
-        try { _computer.Accept(_updateVisitor); } catch { }
+        try 
+        { 
+            _cpu?.Update();
+            _gpu?.Update();
+            _ram?.Update();
+
+            if (fullUpdate)
+            {
+                // Storage and Motherboard sensors are very CPU intensive to poll (especially SMART data).
+                // We only update them once every 10 ticks (~10 seconds) to save CPU.
+                if (_updateCounter % 10 == 0)
+                {
+                    var mb = _computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Motherboard);
+                    mb?.Update();
+
+                    var drives = _computer.Hardware.Where(h => h.HardwareType == HardwareType.Storage);
+                    foreach (var drive in drives) drive.Update();
+                }
+                _updateCounter++;
+            }
+        } 
+        catch { }
     }
 
     public (float Temp, float Usage) GetCpuStats()
@@ -94,11 +117,13 @@ public class HardwareMonitorService : IDisposable
             var tempSensor = _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
             var loadSensor = _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name.Contains("Core"))
                              ?? _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load);
-            var vramSensor = _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Used"));
+            // Try to find dedicated memory first, then fallback to any memory used
+            var vramSensor = _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Dedicated Memory Used"))
+                             ?? _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Used"));
             
             if (tempSensor?.Value != null) temp = tempSensor.Value.Value;
             if (loadSensor?.Value != null) load = loadSensor.Value.Value;
-            if (vramSensor?.Value != null) vram = vramSensor.Value.Value;
+            if (vramSensor?.Value != null) vram = vramSensor.Value.Value / 1024f; // Convert MB to GB
         }
         return (temp, load, vram);
     }

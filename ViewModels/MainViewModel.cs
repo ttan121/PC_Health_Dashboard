@@ -6,15 +6,9 @@ using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PCHealthDashboard.Services;
-using LiveChartsCore;
-using LiveChartsCore.SkiaSharpView;
-using LiveChartsCore.Defaults;
-using LiveChartsCore.SkiaSharpView.Painting;
-using SkiaSharp;
+using PCHealthDashboard.Models;
 
 namespace PCHealthDashboard.ViewModels;
-
-public record WarningAlert(string Title, string Message, string Color, string BgColor);
 
 public partial class MainViewModel : ObservableObject, IDisposable
 {
@@ -24,6 +18,63 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly DispatcherTimer _pollTimer;
 
     [ObservableProperty] private string _currentView = "Tổng quan";
+
+    [ObservableProperty]
+    private string _osdColor = "Yellow";
+    
+    partial void OnOsdColorChanged(string value)
+    {
+        try {
+            var dict = new System.Collections.Generic.Dictionary<string, string> { { "OsdColor", value } };
+            var json = System.Text.Json.JsonSerializer.Serialize(dict);
+            System.IO.File.WriteAllText("settings.json", json);
+        } catch { }
+    }
+
+    [ObservableProperty]
+    private bool _isEfficiencyMode;
+
+    [ObservableProperty]
+    private bool _isPopupVisible;
+
+    [ObservableProperty]
+    private bool _isCompactMode;
+
+    // Update both flags to adjust polling interval
+    partial void OnIsEfficiencyModeChanged(bool value)
+    {
+        UpdatePollingInterval();
+    }
+
+    partial void OnIsCompactModeChanged(bool value)
+    {
+        UpdatePollingInterval();
+    }
+
+    private void UpdatePollingInterval()
+    {
+        if (_pollTimer != null)
+        {
+            if (!_pollTimer.IsEnabled)
+            {
+                _pollTimer.Start();
+            }
+
+            // If app is hidden/minimized but popup is visible, it's either widget or compact
+            if (IsCompactMode)
+            {
+                _pollTimer.Interval = TimeSpan.FromSeconds(2); // Giảm tần suất cho Compact mode (nhẹ nhất)
+            }
+            else if (IsEfficiencyMode && !IsPopupVisible)
+            {
+                _pollTimer.Interval = TimeSpan.FromSeconds(3); // Cryo mode (nhưng bị block ở PollData)
+            }
+            else
+            {
+                _pollTimer.Interval = TimeSpan.FromSeconds(1); // Dashboard hoặc Popup lớn
+            }
+        }
+    }
 
     [ObservableProperty] private int _healthScore;
     [ObservableProperty] private float _cpuTemp;
@@ -44,93 +95,39 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private double _uploadMbps;
     [ObservableProperty] private bool _isAppActive = true;
 
-    [ObservableProperty] private ObservableCollection<WarningAlert> _systemAlerts = new();
+    [ObservableProperty] private ObservableCollection<AlertModel> _systemAlerts = new();
     
+    private readonly System.Collections.Generic.Dictionary<string, DateTime> _alertDebounce = new();
+    private readonly System.Collections.Generic.Dictionary<string, AlertModel> _activeAlerts = new();
+
     public ObservableCollection<DriveStatus> Drives { get; } = new();
 
-    public ObservableCollection<ObservableValue> CpuHistory { get; } = new();
-    public ObservableCollection<ObservableValue> GpuHistory { get; } = new();
-    public ObservableCollection<ObservableValue> RamHistory { get; } = new();
-    public ObservableCollection<ObservableValue> StorageHistory { get; } = new();
-    public ObservableCollection<ObservableValue> PingHistory { get; } = new();
-    public ObservableCollection<ObservableValue> LossHistory { get; } = new();
-    public ObservableCollection<ObservableValue> NetworkSpeedHistory { get; } = new();
-    
-    public ISeries[] CpuSeries { get; set; }
-    public ISeries[] GpuSeries { get; set; }
-    public ISeries[] RamSeries { get; set; }
-    public ISeries[] StorageSeries { get; set; }
-    public ISeries[] PingSeries { get; set; }
-    public ISeries[] LossSeries { get; set; }
-    public ISeries[] HealthSeries { get; set; }
-
-    public Axis[] ChartXAxes { get; set; }
-    public Axis[] ChartYAxes { get; set; }
+    public ObservableCollection<double> CpuHistory { get; } = new();
+    public ObservableCollection<double> GpuHistory { get; } = new();
+    public ObservableCollection<double> RamHistory { get; } = new();
+    public ObservableCollection<double> StorageHistory { get; } = new();
+    public ObservableCollection<double> PingHistory { get; } = new();
+    public ObservableCollection<double> LossHistory { get; } = new();
+    public ObservableCollection<double> NetworkSpeedHistory { get; } = new();
 
     public MainViewModel()
     {
         _hardwareService = new HardwareMonitorService();
         _networkService = new NetworkMonitorService();
         _healthAnalyzer = new HealthAnalyzerService();
-
-        // Colors based on reference image
-        var colorCpu = SKColor.Parse("#3b82f6"); // Blue
-        var colorGpu = SKColor.Parse("#a855f7"); // Purple
-        var colorRam = SKColor.Parse("#4ade80"); // Green
-        var colorStorage = SKColor.Parse("#f59e0b"); // Orange/Yellow
-        var colorPing = SKColor.Parse("#06b6d4"); // Cyan
-        var colorLoss = SKColor.Parse("#0ea5e9"); // Light Blue
-
-        CpuSeries = CreateSeries(CpuHistory, colorCpu);
-        GpuSeries = CreateSeries(GpuHistory, colorGpu);
-        RamSeries = CreateSeries(RamHistory, colorRam);
-        StorageSeries = CreateSeries(StorageHistory, colorStorage);
-        PingSeries = CreateSeries(PingHistory, colorPing);
-        LossSeries = CreateSeries(LossHistory, colorLoss);
         
-        var healthValue = new ObservableValue(100);
-        var remainingValue = new ObservableValue(0);
-        HealthSeries = new ISeries[]
+        // Load settings
+        if (System.IO.File.Exists("settings.json"))
         {
-            new PieSeries<ObservableValue> 
-            { 
-                Values = new[] { healthValue }, 
-                InnerRadius = 35, 
-                MaxRadialColumnWidth = 8,
-                HoverPushout = 0,
-                Fill = new SolidColorPaint(colorRam) 
-            },
-            new PieSeries<ObservableValue> 
-            { 
-                Values = new[] { remainingValue }, 
-                InnerRadius = 35, 
-                MaxRadialColumnWidth = 8,
-                HoverPushout = 0,
-                Fill = new SolidColorPaint(SKColor.Parse("#1e293b")) 
-            }
-        };
-
-        ChartXAxes = new Axis[] 
-        { 
-            new Axis 
-            { 
-                ShowSeparatorLines = false,
-                LabelsPaint = new SolidColorPaint(SKColor.Parse("#666666")),
-                TextSize = 10,
-                Padding = new LiveChartsCore.Drawing.Padding(0, 10, 0, 0)
-            } 
-        };
-        ChartYAxes = new Axis[] 
-        { 
-            new Axis 
-            { 
-                ShowSeparatorLines = true,
-                SeparatorsPaint = new SolidColorPaint(SKColor.Parse("#2A2F3D")) { StrokeThickness = 1 },
-                LabelsPaint = new SolidColorPaint(SKColor.Parse("#666666")),
-                TextSize = 10,
-                MinLimit = 0
-            } 
-        };
+            try {
+                var json = System.IO.File.ReadAllText("settings.json");
+                var dict = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, string>>(json);
+                if (dict != null && dict.TryGetValue("OsdColor", out string? color))
+                {
+                    _osdColor = color;
+                }
+            } catch { }
+        }
 
         _pollTimer = new DispatcherTimer
         {
@@ -138,31 +135,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
         };
         _pollTimer.Tick += async (s, e) => await PollDataAsync();
         _pollTimer.Start();
-    }
 
-    private ISeries[] CreateSeries(ObservableCollection<ObservableValue> history, SKColor color)
-    {
-        var fillColor = color.WithAlpha(50); // Semi-transparent for area fill
-        return new ISeries[] 
-        { 
-            new LineSeries<ObservableValue> 
-            { 
-                Values = history, 
-                Fill = new SolidColorPaint(fillColor),
-                GeometryFill = null,
-                GeometryStroke = null,
-                Stroke = new SolidColorPaint(color) { StrokeThickness = 2 },
-                LineSmoothness = 0.5
-            } 
-        };
-    }
-
-    public void OnAppActivated()
-    {
-    }
-
-    public void OnAppDeactivated()
-    {
+        // Subscribe to main window state changes for auto efficiency mode
+        if (System.Windows.Application.Current?.MainWindow != null)
+        {
+            System.Windows.Application.Current.MainWindow.StateChanged += MainWindow_StateChanged;
+            // Initial check
+            IsEfficiencyMode = System.Windows.Application.Current.MainWindow.WindowState == WindowState.Minimized;
+        }
     }
 
     private bool _isPolling;
@@ -171,11 +151,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private async Task PollDataAsync()
     {
         if (_isPolling) return;
+        if (IsEfficiencyMode && !IsPopupVisible) return; // "chết đông" (tự động) khi app ẩn hoàn toàn
 
         try
         {
             _isPolling = true;
-            _hardwareService.Update();
+            bool isFullUpdate = IsAppActive || !IsEfficiencyMode || (IsPopupVisible && !IsCompactMode);
+            await Task.Run(() => { _hardwareService.Update(isFullUpdate); });
 
             var cpuStats = _hardwareService.GetCpuStats();
             CpuTemp = cpuStats.Temp > 0 ? cpuStats.Temp : 45f; // Safe default if sensor unavailable on some VMs
@@ -186,89 +168,90 @@ public partial class MainViewModel : ObservableObject, IDisposable
             GpuUsage = gpuStats.Load;
             GpuVram = gpuStats.VramUsed;
 
-        var ramStats = _hardwareService.GetRamStats();
-        RamUsed = ramStats.UsedGB;
-        RamTotal = ramStats.TotalGB > 0 ? ramStats.TotalGB : 16f;
+            var ramStats = _hardwareService.GetRamStats();
+            RamUsed = ramStats.UsedGB;
+            RamTotal = ramStats.TotalGB > 0 ? ramStats.TotalGB : 16f;
 
-        var drives = _hardwareService.GetDrivesStats();
-        
-        Application.Current?.Dispatcher.Invoke(() =>
-        {
-            if (Drives.Count == drives.Count)
+            if (isFullUpdate)
             {
-                for (int i = 0; i < drives.Count; i++)
+                var drives = _hardwareService.GetDrivesStats();
+                
+                System.Windows.Application.Current?.Dispatcher.Invoke(() =>
                 {
-                    Drives[i].Name = drives[i].Name;
-                    Drives[i].Type = drives[i].Type;
-                    Drives[i].Interface = drives[i].Interface;
-                    Drives[i].TotalGB = drives[i].TotalGB;
-                    Drives[i].FreeGB = drives[i].FreeGB;
-                    Drives[i].Health = drives[i].Health;
-                    Drives[i].Temp = drives[i].Temp;
+                    if (Drives.Count == drives.Count)
+                    {
+                        for (int i = 0; i < drives.Count; i++)
+                        {
+                            Drives[i].Name = drives[i].Name;
+                            Drives[i].Type = drives[i].Type;
+                            Drives[i].Interface = drives[i].Interface;
+                            Drives[i].TotalGB = drives[i].TotalGB;
+                            Drives[i].FreeGB = drives[i].FreeGB;
+                            Drives[i].Health = drives[i].Health;
+                            Drives[i].Temp = drives[i].Temp;
+                        }
+                    }
+                    else
+                    {
+                        Drives.Clear();
+                        foreach (var d in drives) Drives.Add(d);
+                    }
+                });
+
+                if (drives.Count > 0)
+                {
+                    var systemDrive = drives.FirstOrDefault(d => d.Name.Contains("C")) ?? drives[0];
+                    SsdHealth = systemDrive.Health;
+                    SsdTemp = systemDrive.Temp;
+                    SsdFreeSpace = systemDrive.FreeGB;
+                    SsdTotalSpace = systemDrive.TotalGB;
+                    SsdUsedSpace = systemDrive.UsedGB;
                 }
             }
-            else
+
+            if (isFullUpdate)
             {
-                Drives.Clear();
-                foreach (var d in drives) Drives.Add(d);
-            }
-        });
-
-        if (drives.Count > 0)
-        {
-            var systemDrive = drives.FirstOrDefault(d => d.Name.Contains("C")) ?? drives[0];
-            SsdHealth = systemDrive.Health;
-            SsdTemp = systemDrive.Temp;
-            SsdFreeSpace = systemDrive.FreeGB;
-            SsdTotalSpace = systemDrive.TotalGB;
-            SsdUsedSpace = systemDrive.UsedGB;
-        }
-
-        var netStats = await _networkService.GetNetworkStatusAsync();
-        PingLatency = netStats.Latency;
-        PacketLoss = netStats.PacketLoss;
-        DownloadMbps = netStats.DownloadMbps;
-        UploadMbps = netStats.UploadMbps;
-
-        HealthScore = _healthAnalyzer.CalculateHealthScore(
-            SsdHealth, SsdFreeSpace, SsdTotalSpace,
-            CpuTemp, GpuTemp,
-            RamUsed, RamTotal,
-            PacketLoss);
-
-        UpdateAlerts();
-
-        Application.Current?.Dispatcher.Invoke(() =>
-        {
-            CpuHistory.Add(new ObservableValue(CpuUsage));
-            GpuHistory.Add(new ObservableValue(GpuUsage));
-            RamHistory.Add(new ObservableValue(RamTotal > 0 ? (RamUsed / RamTotal) * 100 : 0));
-            StorageHistory.Add(new ObservableValue(SsdTotalSpace > 0 ? ((SsdTotalSpace - SsdFreeSpace) / SsdTotalSpace) * 100 : 0));
-            PingHistory.Add(new ObservableValue(PingLatency));
-            LossHistory.Add(new ObservableValue(PacketLoss));
-            NetworkSpeedHistory.Add(new ObservableValue(DownloadMbps));
-            
-            if (HealthSeries[0].Values != null)
-            {
-                var hVals = (ObservableValue[])HealthSeries[0].Values;
-                hVals[0].Value = HealthScore;
-            }
-            if (HealthSeries[1].Values != null)
-            {
-                var rVals = (ObservableValue[])HealthSeries[1].Values;
-                rVals[0].Value = 100 - HealthScore;
+                var netStats = await _networkService.GetNetworkStatusAsync();
+                PingLatency = netStats.Latency;
+                PacketLoss = netStats.PacketLoss;
+                DownloadMbps = netStats.DownloadMbps;
+                UploadMbps = netStats.UploadMbps;
             }
 
-            if (CpuHistory.Count > 1800) CpuHistory.RemoveAt(0);
-            if (GpuHistory.Count > 1800) GpuHistory.RemoveAt(0);
-            if (RamHistory.Count > 1800) RamHistory.RemoveAt(0);
-            if (StorageHistory.Count > 1800) StorageHistory.RemoveAt(0);
-            if (PingHistory.Count > 1800) PingHistory.RemoveAt(0);
-            if (LossHistory.Count > 1800) LossHistory.RemoveAt(0);
-            if (NetworkSpeedHistory.Count > 1800) NetworkSpeedHistory.RemoveAt(0);
-            
-            DataPolled?.Invoke();
-        });
+            HealthScore = _healthAnalyzer.CalculateHealthScore(
+                SsdHealth, SsdFreeSpace, SsdTotalSpace,
+                CpuTemp, GpuTemp,
+                RamUsed, RamTotal,
+                PacketLoss);
+
+            UpdateAlerts();
+
+            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+            {
+                if (IsAppActive || !IsEfficiencyMode || (IsPopupVisible && !IsCompactMode))
+                {
+                    CpuHistory.Add(CpuUsage);
+                    GpuHistory.Add(GpuUsage);
+                    RamHistory.Add(RamTotal > 0 ? (RamUsed / RamTotal) * 100 : 0);
+                    StorageHistory.Add(SsdTotalSpace > 0 ? ((SsdTotalSpace - SsdFreeSpace) / SsdTotalSpace) * 100 : 0);
+                    PingHistory.Add(PingLatency);
+                    LossHistory.Add(PacketLoss);
+                }
+                
+                // Always update NetworkSpeedHistory as KittyWindow's sparkline depends on it
+                NetworkSpeedHistory.Add(DownloadMbps);
+
+                const int maxPoints = 60; // 60 seconds of history — lightweight for software rendering
+                if (CpuHistory.Count > maxPoints) CpuHistory.RemoveAt(0);
+                if (GpuHistory.Count > maxPoints) GpuHistory.RemoveAt(0);
+                if (RamHistory.Count > maxPoints) RamHistory.RemoveAt(0);
+                if (StorageHistory.Count > maxPoints) StorageHistory.RemoveAt(0);
+                if (PingHistory.Count > maxPoints) PingHistory.RemoveAt(0);
+                if (LossHistory.Count > maxPoints) LossHistory.RemoveAt(0);
+                if (NetworkSpeedHistory.Count > maxPoints) NetworkSpeedHistory.RemoveAt(0);
+                
+                DataPolled?.Invoke();
+            });
 
         }
         finally
@@ -279,21 +262,111 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void UpdateAlerts()
     {
-        SystemAlerts.Clear();
-
-        if (CpuTemp > 85) SystemAlerts.Add(new WarningAlert("Nhiệt độ CPU cao!", $"Nhiệt độ hiện tại: {CpuTemp:F0}°C", "#ef4444", "#2A1518"));
-        if (GpuTemp > 85) SystemAlerts.Add(new WarningAlert("Nhiệt độ GPU cao!", $"Nhiệt độ hiện tại: {GpuTemp:F0}°C", "#ef4444", "#2A1518"));
-        if (RamTotal > 0 && (RamUsed / RamTotal) > 0.9) SystemAlerts.Add(new WarningAlert("RAM bị đầy!", $"Sử dụng {RamUsed:F1} GB / {RamTotal:F1} GB", "#ef4444", "#2A1518"));
+        var newAlerts = new System.Collections.Generic.List<AlertModel>();
         
+        void TryAddAlert(string id, AlertSeverity severity, string title, string desc, string metric, string rec)
+        {
+            // Simple hysteresis: Require condition to be clear for 30s before alerting again?
+            // Actually, we just keep the alert active as long as the condition is true.
+            if (!_activeAlerts.ContainsKey(id))
+            {
+                var alert = new AlertModel { Id = id, Severity = severity, Title = title, Description = desc, Metric = metric, Recommendation = rec };
+                newAlerts.Add(alert);
+                _activeAlerts[id] = alert;
+            }
+            else
+            {
+                newAlerts.Add(_activeAlerts[id]);
+            }
+        }
+
+        // 1. Storage
         if (SsdTotalSpace > 0)
         {
             float freePercent = (SsdFreeSpace / SsdTotalSpace) * 100f;
-            if (freePercent < 10) SystemAlerts.Add(new WarningAlert("Ổ C sắp đầy!", $"Chỉ còn {SsdFreeSpace:F1} GB trống ({freePercent:F0}%)", "#fbbf24", "#2A2210"));
+            if (freePercent < 15)
+            {
+                TryAddAlert("storage_full", AlertSeverity.Warning, "Storage bottleneck",
+                    "Your system drive is nearly full. Low free space can reduce storage performance and leave less room for temporary files, caches, and paging.",
+                    $"{SsdFreeSpace:F1} GB free ({freePercent:F0}%)",
+                    "Keep at least 10–20% free space when practical.");
+            }
         }
         
-        if (PingLatency > 200) SystemAlerts.Add(new WarningAlert("Mạng lag bất thường!", $"Ping: {PingLatency} ms | Loss: {PacketLoss}%", "#fbbf24", "#2A2210"));
+        if (SsdHealth < 80)
+        {
+            TryAddAlert("storage_health", AlertSeverity.Critical, "Storage health warning",
+                "The system drive reports degraded health.",
+                $"{SsdHealth:F0}% Health",
+                "Back up important data and consider replacing the drive if the condition persists.");
+        }
 
-        if (SystemAlerts.Count == 0) SystemAlerts.Add(new WarningAlert("Hệ thống ổn định", "Mọi thông số đều đang ở mức an toàn.", "#4ade80", "#16281b"));
+        // 2. Memory
+        if (RamTotal > 0)
+        {
+            float ramUsage = (RamUsed / RamTotal) * 100f;
+            if (ramUsage > 95 && SsdUsedSpace > 0 /* Assuming disk activity implies paging */)
+            {
+                 TryAddAlert("mem_pressure", AlertSeverity.Critical, "High memory pressure",
+                    "RAM usage is high and paging activity may have increased. Windows may be moving memory pages between RAM and storage, which can significantly increase latency.",
+                    $"{ramUsage:F0}% Used",
+                    "Close memory-intensive applications.");
+            }
+            else if (ramUsage > 90)
+            {
+                 TryAddAlert("mem_high", AlertSeverity.Warning, "High memory usage",
+                    "Memory usage is above 90%. Available memory is becoming limited.",
+                    $"{ramUsage:F0}% Used",
+                    "Close unused applications.");
+            }
+        }
+
+        // 3. CPU/GPU Thermal
+        if (CpuTemp > 88)
+        {
+            TryAddAlert("cpu_temp", AlertSeverity.Warning, "High CPU temperature",
+                "CPU temperature is high. Sustained high temperatures may cause the processor to reduce operating frequency to control heat.",
+                $"{CpuTemp:F0}°C",
+                "Check cooling and airflow if this persists.");
+        }
+        
+        if (GpuTemp > 88)
+        {
+            TryAddAlert("gpu_temp", AlertSeverity.Warning, "High GPU temperature",
+                "GPU temperature is high.",
+                $"{GpuTemp:F0}°C",
+                "Check cooling and airflow if this persists.");
+        }
+
+        // Sync observable collection
+        var toRemove = SystemAlerts.Where(a => !newAlerts.Any(na => na.Id == a.Id)).ToList();
+        foreach (var r in toRemove)
+        {
+            SystemAlerts.Remove(r);
+            _activeAlerts.Remove(r.Id);
+        }
+        
+        foreach (var na in newAlerts)
+        {
+            if (!SystemAlerts.Contains(na)) SystemAlerts.Add(na);
+        }
+        
+        // Add a "healthy" pseudo-alert if empty for UI binding simplicity
+        if (SystemAlerts.Count == 0)
+        {
+            if (!_activeAlerts.ContainsKey("healthy"))
+            {
+                var healthy = new AlertModel { Id = "healthy", Severity = AlertSeverity.Info, Title = "System Healthy", Description = "No issues detected.", Metric = "All OK", Recommendation = "" };
+                SystemAlerts.Add(healthy);
+                _activeAlerts["healthy"] = healthy;
+            }
+        }
+        else if (SystemAlerts.Count > 1 && _activeAlerts.ContainsKey("healthy"))
+        {
+            var h = SystemAlerts.FirstOrDefault(a => a.Id == "healthy");
+            if (h != null) SystemAlerts.Remove(h);
+            _activeAlerts.Remove("healthy");
+        }
     }
 
     [CommunityToolkit.Mvvm.Input.RelayCommand]
@@ -306,5 +379,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         _pollTimer.Stop();
         _hardwareService.Dispose();
+        // Unsubscribe to avoid memory leaks
+        if (System.Windows.Application.Current?.MainWindow != null)
+        {
+            System.Windows.Application.Current.MainWindow.StateChanged -= MainWindow_StateChanged;
+        }
+    }
+
+    private void MainWindow_StateChanged(object? sender, EventArgs e)
+    {
+        if (System.Windows.Application.Current?.MainWindow?.WindowState == WindowState.Minimized)
+        {
+            IsEfficiencyMode = true;
+            IsAppActive = false;
+        }
+        else
+        {
+            IsEfficiencyMode = false;
+            IsAppActive = true;
+        }
     }
 }

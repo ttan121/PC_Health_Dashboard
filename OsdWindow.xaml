@@ -1,0 +1,33 @@
+<Window x:Class="PCHealthDashboard.OsdWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PC Health OSD" SizeToContent="WidthAndHeight"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" WindowStartupLocation="Manual"
+        MouseDown="Window_MouseDown"
+        ContextMenu="{DynamicResource OsdContextMenu}">
+    <Window.Resources>
+        <ContextMenu x:Key="OsdContextMenu">
+            <MenuItem Header="Đóng Compact Mode" Click="CloseCompactMode_Click"/>
+        </ContextMenu>
+    </Window.Resources>
+    
+    <Border Background="{StaticResource SurfacePrimary}" BorderBrush="{StaticResource BorderNeutral}" BorderThickness="1" CornerRadius="8" Padding="12,6" Margin="10">
+        <Border.Effect>
+            <DropShadowEffect Color="Black" BlurRadius="6" ShadowDepth="2" Opacity="0.5"/>
+        </Border.Effect>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <!-- CPU -->
+            <TextBlock Text="CPU" Style="{StaticResource TextLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <TextBlock x:Name="OsdCpu" Text="--%" Style="{StaticResource TextBody}" Foreground="{Binding OsdColor, Converter={StaticResource StringToColorBrushConverter}}" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            
+            <!-- GPU -->
+            <TextBlock Text="GPU" Style="{StaticResource TextLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <TextBlock x:Name="OsdGpu" Text="--%" Style="{StaticResource TextBody}" Foreground="{Binding OsdColor, Converter={StaticResource StringToColorBrushConverter}}" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            
+            <!-- RAM -->
+            <TextBlock Text="RAM" Style="{StaticResource TextLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <TextBlock x:Name="OsdRam" Text="--%" Style="{StaticResource TextBody}" Foreground="{Binding OsdColor, Converter={StaticResource StringToColorBrushConverter}}" FontWeight="Bold" VerticalAlignment="Center"/>
+        </StackPanel>
+    </Border>
+</Window>

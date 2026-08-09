@@ -20,10 +20,12 @@ Whether you are gaming, rendering, or simply keeping an eye on your system, PC H
 ## 📸 Screenshots
 
 **Main Dashboard**
-<img width="1602" height="996" alt="{20A47FAC-3CE8-4330-B679-BFC262338008}" src="https://github.com/user-attachments/assets/382e87e1-d38b-4a4e-b539-52fd19e65415" />
+<img width="934" height="609" alt="{A2C99F69-1902-4608-B7E8-C2E0F408FEA7}" src="https://github.com/user-attachments/assets/c60f1999-5c23-4da7-b66a-f8dc98eecf68" />
+
 
 **KittyWindow (Always-on-top Widget)**
-<img width="399" height="514" alt="{29C908C7-33D6-406D-8C05-75DBCEC9E99E}" src="https://github.com/user-attachments/assets/f4608d7d-ddaf-467d-9711-1f2a0c1e371c" />
+<img width="363" height="321" alt="{A98E0C17-4455-46F0-932D-9EB820F3D7BC}" src="https://github.com/user-attachments/assets/51ae0cd3-f757-492e-ab0a-68f82279c6d3" />
+
 
 ---
 

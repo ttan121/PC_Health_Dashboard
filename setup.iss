@@ -14,7 +14,7 @@ UninstallDisplayIcon={app}\PCHealthDashboard.exe
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "d:\PC_Health_Dashboard\Publish\*"; DestDir: "{app}"; Flags: ignoreversion recurse subdirs createallsubdirs
+Source: "d:\PC_Health_Dashboard\Publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\PC Health Dashboard"; Filename: "{app}\PCHealthDashboard.exe"

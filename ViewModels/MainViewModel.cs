@@ -82,6 +82,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private float _gpuTemp;
     [ObservableProperty] private float _gpuUsage;
     [ObservableProperty] private float _gpuVram;
+    [ObservableProperty] private float _gpuVramTotal = 8f; // Default 8GB if unavailable
     [ObservableProperty] private float _ramUsed;
     [ObservableProperty] private float _ramTotal;
     [ObservableProperty] private float _ssdHealth;
@@ -164,9 +165,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
             CpuUsage = cpuStats.Usage;
 
             var gpuStats = _hardwareService.GetGpuStats();
-            GpuTemp = gpuStats.Temp > 0 ? gpuStats.Temp : 40f;
+            // iGPUs (Intel/AMD) often don't have a dedicated temp sensor, so we fallback to CpuTemp since they share the same die.
+            GpuTemp = gpuStats.Temp > 0 ? gpuStats.Temp : CpuTemp;
             GpuUsage = gpuStats.Load;
             GpuVram = gpuStats.VramUsed;
+            GpuVramTotal = gpuStats.VramTotal > 0 ? gpuStats.VramTotal : 8f;
 
             var ramStats = _hardwareService.GetRamStats();
             RamUsed = ramStats.UsedGB;

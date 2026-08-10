@@ -70,7 +70,7 @@ public partial class KittyWindow : Window
         // ── GPU ──
         GpuText.Text = $"{vm.GpuUsage:F0}%";
         GpuTempText.Text = $"{vm.GpuTemp:F0}°C";
-        GpuVramText.Text = $"VRAM {vm.GpuVram:F1} / 8 GB";
+        GpuVramText.Text = $"VRAM {vm.GpuVram:F1} / {vm.GpuVramTotal:F0} GB";
         GpuFill.Width = new GridLength(vm.GpuUsage, GridUnitType.Star);
         GpuEmpty.Width = new GridLength(Math.Max(0, 100 - vm.GpuUsage), GridUnitType.Star);
 

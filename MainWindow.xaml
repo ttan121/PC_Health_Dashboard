@@ -142,7 +142,13 @@
                         <TextBlock Text="GPU" Style="{StaticResource TextLabel}"/>
                         <StackPanel Orientation="Vertical" HorizontalAlignment="Right">
                             <TextBlock Text="{Binding GpuUsage, StringFormat={}{0:F0}%}" Style="{StaticResource TextMetricValue}" HorizontalAlignment="Right"/>
-                            <TextBlock Text="{Binding GpuVram, StringFormat=VRAM {0:F1} / 8 GB}" Style="{StaticResource TextLabel}" Margin="0,2,0,0" HorizontalAlignment="Right"/>
+                            <TextBlock Style="{StaticResource TextLabel}" Margin="0,2,0,0" HorizontalAlignment="Right">
+                                <Run Text="VRAM "/>
+                                <Run Text="{Binding GpuVram, StringFormat={}{0:F1}}"/>
+                                <Run Text=" / "/>
+                                <Run Text="{Binding GpuVramTotal, StringFormat={}{0:F0}}"/>
+                                <Run Text=" GB"/>
+                            </TextBlock>
                         </StackPanel>
                     </Grid>
                     <!-- Progress Bar -->

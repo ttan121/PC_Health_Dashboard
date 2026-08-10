@@ -109,9 +109,9 @@ public class HardwareMonitorService : IDisposable
         return (temp, usage);
     }
 
-    public (float Temp, float Load, float VramUsed) GetGpuStats()
+    public (float Temp, float Load, float VramUsed, float VramTotal) GetGpuStats()
     {
-        float temp = 0f, load = 0f, vram = 0f;
+        float temp = 0f, load = 0f, vram = 0f, vramTotal = 8f;
         if (_gpu != null)
         {
             var tempSensor = _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
@@ -120,12 +120,15 @@ public class HardwareMonitorService : IDisposable
             // Try to find dedicated memory first, then fallback to any memory used
             var vramSensor = _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Dedicated Memory Used"))
                              ?? _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Used"));
+                             
+            var vramTotalSensor = _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Total"));
+            if (vramTotalSensor?.Value != null) vramTotal = vramTotalSensor.Value.Value / 1024f; // MB to GB
             
             if (tempSensor?.Value != null) temp = tempSensor.Value.Value;
             if (loadSensor?.Value != null) load = loadSensor.Value.Value;
             if (vramSensor?.Value != null) vram = vramSensor.Value.Value / 1024f; // Convert MB to GB
         }
-        return (temp, load, vram);
+        return (temp, load, vram, vramTotal);
     }
 
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]

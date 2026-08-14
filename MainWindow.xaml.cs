@@ -128,7 +128,7 @@ public partial class MainWindow : Window
         // Hook into the ViewModel's poll timer to keep popup in sync
         if (this.DataContext is MainViewModel viewModel)
         {
-            viewModel.DataPolled += () =>
+            viewModel.DataPolled += (s, ev) =>
             {
                 // Update Network Sparkline if window is visible
                 if (this.Visibility == Visibility.Visible)
@@ -241,9 +241,11 @@ public partial class MainWindow : Window
             }
             else
             {
+                _osdWindow.DataContext = vm;
                 _osdWindow.SyncValues(vm);
                 _osdWindow.Show();
                 vm.IsPopupVisible = true;
+                this.WindowState = WindowState.Minimized;
             }
         }
     }
@@ -269,9 +271,11 @@ public partial class MainWindow : Window
             }
             else
             {
+                _kittyWindow.DataContext = vm;
                 _kittyWindow.SyncAllValues(vm);
                 _kittyWindow.Show();
                 vm.IsPopupVisible = true;
+                this.WindowState = WindowState.Minimized;
             }
         }
     }

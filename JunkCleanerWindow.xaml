@@ -1,0 +1,45 @@
+﻿<Window x:Class="PCHealthDashboard.JunkCleanerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Dọn Rác Hệ Thống" Height="350" Width="400"
+        Background="#0a0c10" Foreground="#e2e8f0"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+        </Style>
+    </Window.Resources>
+    
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <TextBlock Text="CHỌN Ổ ĐĨA ĐỂ DỌN RÁC" FontSize="14" FontWeight="SemiBold" Foreground="#94a3b8" Margin="0,0,0,16"/>
+        
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="DriveList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="#1e293b" CornerRadius="6" Margin="0,0,0,8" Padding="12">
+                            <CheckBox IsChecked="{Binding IsSelected}" Content="{Binding DisplayName}" Foreground="#e2e8f0" FontSize="14"/>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+        
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Hủy" Click="CancelButton_Click" Background="Transparent" Foreground="#94a3b8" BorderThickness="0" Padding="16,8" Margin="0,0,8,0" Cursor="Hand"/>
+            <Button Content="Dọn Dẹp Ngay" Click="CleanButton_Click" Background="#3b82f6" Foreground="White" BorderThickness="0" Padding="16,8" Cursor="Hand" FontWeight="SemiBold">
+                <Button.Resources>
+                    <Style TargetType="Border">
+                        <Setter Property="CornerRadius" Value="4"/>
+                    </Style>
+                </Button.Resources>
+            </Button>
+        </StackPanel>
+    </Grid>
+</Window>

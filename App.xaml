@@ -9,6 +9,10 @@
         <helpers:SeverityToColorConverter x:Key="SeverityToColorConverter"/>
         <helpers:StringToColorBrushConverter x:Key="StringToColorBrushConverter"/>
         <helpers:StringToBoolConverter x:Key="StringToBoolConverter"/>
+        
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <helpers:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
+        <helpers:SharedVramPrefixConverter x:Key="SharedVramPrefixConverter" />
 
         <!-- COLOR TOKENS -->
         <SolidColorBrush x:Key="SurfacePrimary" Color="#0a0c10" />

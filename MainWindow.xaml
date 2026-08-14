@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:PCHealthDashboard.ViewModels"
-        Title="PC Health Dashboard" Height="480" Width="760"
+        Title="PC Health Dashboard" SizeToContent="Height" MinHeight="480" Width="760"
         WindowStyle="SingleBorderWindow" Background="{StaticResource SurfacePrimary}"
         WindowStartupLocation="CenterScreen"
         MouseDown="Window_MouseDown">
@@ -51,10 +51,9 @@
                         <RadioButton GroupName="OsdColor" Content=" " Background="#f87171" BorderThickness="0" Margin="0,0,4,0" IsChecked="{Binding OsdColor, Converter={StaticResource StringToBoolConverter}, ConverterParameter=Red}"/>
                         <RadioButton GroupName="OsdColor" Content=" " Background="#4ade80" BorderThickness="0" IsChecked="{Binding OsdColor, Converter={StaticResource StringToBoolConverter}, ConverterParameter=Green}"/>
                     </StackPanel>
-                    <CheckBox Content="Cryo Mode" IsChecked="{Binding IsEfficiencyMode, Mode=TwoWay}" Foreground="#60a5fa" Margin="0,0,12,0" VerticalAlignment="Center" ToolTip="Đóng băng ứng dụng để tiết kiệm tài nguyên"/>
                     <Button Content="Widget" Foreground="{StaticResource TextSecondary}" Background="{StaticResource SurfaceSecondary}" BorderThickness="0" Padding="12,6" Margin="0,0,8,0" Cursor="Hand" Click="CustomizeButton_Click" ToolTip="Mở Popup Lớn"/>
                     <Button Content="Mini" Foreground="{StaticResource TextSecondary}" Background="{StaticResource SurfaceSecondary}" BorderThickness="0" Padding="12,6" Margin="0,0,12,0" Cursor="Hand" Click="CompactWidgetButton_Click" ToolTip="Mở Popup Nhỏ (Compact)"/>
-                    <Button Content="─" Foreground="{StaticResource TextSecondary}" Background="Transparent" BorderThickness="0" FontSize="14" Click="MinimizeButton_Click" Cursor="Hand" Padding="8,0"/>
+                    <Button Content="—" Foreground="{StaticResource TextSecondary}" Background="Transparent" BorderThickness="0" FontSize="14" Click="MinimizeButton_Click" Cursor="Hand" Padding="8,0"/>
                     <Button Content="✕" Foreground="{StaticResource TextSecondary}" Background="Transparent" BorderThickness="0" FontSize="14" Click="CloseButton_Click" Cursor="Hand" Padding="8,0"/>
                 </StackPanel>
             </Grid>
@@ -98,96 +97,159 @@
                 </ScrollViewer>
             </Grid>
 
-            <!-- METRICS GRID -->
+                        <!-- METRICS GRID -->
             <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1*"/>
                     <ColumnDefinition Width="32"/>
                     <ColumnDefinition Width="1*"/>
                 </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="32"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
 
-                <!-- CPU -->
-                <StackPanel Grid.Row="0" Grid.Column="0">
-                    <Grid Margin="0,0,0,8">
-                        <TextBlock Text="CPU" Style="{StaticResource TextLabel}"/>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                            <TextBlock Text="{Binding CpuUsage, StringFormat={}{0:F0}%}" Style="{StaticResource TextMetricValue}"/>
-                        </StackPanel>
-                    </Grid>
-                    <!-- Progress Bar -->
-                    <Grid Height="4">
-                        <Border Background="{StaticResource SurfaceSecondary}" CornerRadius="2" />
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <!-- WPF allows binding to GridLength? No! Binding Width directly to double doesn't work for GridLength easily without a converter in some cases, but WPF actually supports it with type converter if we bind to a double property, wait! 
-                                     Actually binding double to GridLength does NOT work natively without a converter. 
-                                     Let's use a Border with horizontal alignment left and width bound to ActualWidth? No.
-                                     We can use a ProgressBar styled minimally! -->
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <ProgressBar Value="{Binding CpuUsage}" Maximum="100" BorderThickness="0" Background="Transparent" Foreground="{StaticResource SemanticInfo}"/>
+                <!-- LEFT COLUMN -->
+                <StackPanel Grid.Column="0">
+                    <!-- CPU -->
+                    <StackPanel>
+                        <Grid Margin="0,0,0,8">
+                            <TextBlock Text="CPU" Style="{StaticResource TextLabel}"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding CpuUsage, StringFormat={}{0:F0}%}" Style="{StaticResource TextMetricValue}"/>
+                            </StackPanel>
                         </Grid>
-                    </Grid>
-                    <TextBlock Text="{Binding CpuTemp, StringFormat={}{0:F0}°C}" Style="{StaticResource TextBody}" Margin="0,4,0,0"/>
+                        <!-- Progress Bar -->
+                        <Grid Height="4">
+                            <Border Background="{StaticResource SurfaceSecondary}" CornerRadius="2" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <ProgressBar Value="{Binding CpuUsage}" Maximum="100" BorderThickness="0" Background="Transparent" Foreground="{StaticResource SemanticInfo}"/>
+                            </Grid>
+                        </Grid>
+                        <TextBlock Text="{Binding CpuTemp, StringFormat={}{0:F0}°C}" Style="{StaticResource TextBody}" Margin="0,4,0,0"/>
+                    </StackPanel>
+
+                    <!-- RAM -->
+                    <StackPanel Margin="0,32,0,0">
+                        <Grid Margin="0,0,0,8">
+                            <TextBlock Text="MEMORY" Style="{StaticResource TextLabel}"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding RamUsed, StringFormat={}{0:F1} GB}" Style="{StaticResource TextMetricValue}"/>
+                                <TextBlock Text="{Binding RamTotal, StringFormat= / {0:F0} GB}" Style="{StaticResource TextBody}" Foreground="{StaticResource TextMuted}" VerticalAlignment="Bottom" Margin="4,0,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                        <Grid Height="4">
+                            <Border Background="{StaticResource SurfaceSecondary}" CornerRadius="2" />
+                            <ProgressBar Value="{Binding RamUsed}" Maximum="{Binding RamTotal}" BorderThickness="0" Background="Transparent" Foreground="{StaticResource SemanticHealthy}"/>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <Button Content="⚙ Tùy chọn Tối ưu..." Command="{Binding OpenRamOptimizerCommand}" 
+                                    Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextMuted}" 
+                                    FontSize="11" Padding="0" Margin="0,0,16,0" Cursor="Hand" HorizontalAlignment="Left">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"/>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Foreground" Value="{StaticResource SemanticInfo}"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            
+                            <Button Content="🧹 Dọn Rác Hệ Thống" Command="{Binding CleanJunkCommand}" 
+                                    Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextMuted}" 
+                                    FontSize="11" Padding="0" Cursor="Hand" HorizontalAlignment="Left">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"/>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Foreground" Value="{StaticResource SemanticWarning}"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
 
-                <!-- GPU -->
-                <StackPanel Grid.Row="0" Grid.Column="2">
-                    <Grid Margin="0,0,0,8">
-                        <TextBlock Text="GPU" Style="{StaticResource TextLabel}"/>
-                        <StackPanel Orientation="Vertical" HorizontalAlignment="Right">
-                            <TextBlock Text="{Binding GpuUsage, StringFormat={}{0:F0}%}" Style="{StaticResource TextMetricValue}" HorizontalAlignment="Right"/>
-                            <TextBlock Style="{StaticResource TextLabel}" Margin="0,2,0,0" HorizontalAlignment="Right">
-                                <Run Text="VRAM "/>
-                                <Run Text="{Binding GpuVram, StringFormat={}{0:F1}}"/>
-                                <Run Text=" / "/>
-                                <Run Text="{Binding GpuVramTotal, StringFormat={}{0:F0}}"/>
-                                <Run Text=" GB"/>
-                            </TextBlock>
-                        </StackPanel>
-                    </Grid>
-                    <!-- Progress Bar -->
-                    <Grid Height="4">
-                        <Border Background="{StaticResource SurfaceSecondary}" CornerRadius="2" />
-                        <ProgressBar Value="{Binding GpuUsage}" Maximum="100" BorderThickness="0" Background="Transparent" Foreground="{StaticResource SemanticInfo}"/>
-                    </Grid>
-                    <TextBlock Text="{Binding GpuTemp, StringFormat={}{0:F0}°C}" Style="{StaticResource TextBody}" Margin="0,4,0,0"/>
-                </StackPanel>
+                <!-- RIGHT COLUMN -->
+                <StackPanel Grid.Column="2">
+                    <!-- GPU -->
+                    <StackPanel>
+                        <TextBlock Text="GPU" Style="{StaticResource TextLabel}" Margin="0,0,0,8"/>
+                        <ItemsControl ItemsSource="{Binding Gpus}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="0,0,0,24">
+                                        <Grid Margin="0,0,0,4">
+                                            <TextBlock Text="{Binding Name}" Style="{StaticResource TextLabel}" Foreground="{StaticResource TextPrimary}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="220" HorizontalAlignment="Left"/>
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Usage, StringFormat={}{0:F0}%}" Style="{StaticResource TextMetricValue}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                        <Grid Height="4" Margin="0,0,0,4">
+                                            <Border Background="{StaticResource SurfaceSecondary}" CornerRadius="2" />
+                                            <ProgressBar Value="{Binding Usage}" Maximum="100" BorderThickness="0" Background="Transparent" Foreground="{StaticResource SemanticInfo}"/>
+                                        </Grid>
+                                        <Grid>
+                                            <TextBlock Text="{Binding Temperature, StringFormat={}{0:F0}°C}" Style="{StaticResource TextBody}" HorizontalAlignment="Left"/>
+                                            <TextBlock Style="{StaticResource TextLabel}" HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="{Binding IsVramAvailable, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                <Run Text="{Binding IsSharedMemory, Converter={StaticResource SharedVramPrefixConverter}, FallbackValue=VRAM}"/>
+                                                <Run Text=" "/>
+                                                <Run Text="{Binding VramUsed, StringFormat={}{0:F1}}"/>
+                                                <Run Text=" / "/>
+                                                <Run Text="{Binding VramTotal, StringFormat={}{0:F0}}"/>
+                                                <Run Text=" GB"/>
+                                            </TextBlock>
+                                            <TextBlock Text="N/A" Style="{StaticResource TextLabel}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource TextMuted}" Visibility="{Binding IsVramAvailable, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                            <ItemsControl.Style>
+                                <Style TargetType="ItemsControl">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Gpus.Count}" Value="0">
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate>
+                                                        <TextBlock Text="No compatible GPU telemetry available" Style="{StaticResource TextBody}" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap"/>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ItemsControl.Style>
+                        </ItemsControl>
+                    </StackPanel>
 
-                <!-- RAM -->
-                <StackPanel Grid.Row="2" Grid.Column="0">
-                    <Grid Margin="0,0,0,8">
-                        <TextBlock Text="MEMORY" Style="{StaticResource TextLabel}"/>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                            <TextBlock Text="{Binding RamUsed, StringFormat={}{0:F1} GB}" Style="{StaticResource TextMetricValue}"/>
-                            <TextBlock Text="{Binding RamTotal, StringFormat= / {0:F0} GB}" Style="{StaticResource TextBody}" Foreground="{StaticResource TextMuted}" VerticalAlignment="Bottom" Margin="4,0,0,0"/>
-                        </StackPanel>
-                    </Grid>
-                    <Grid Height="4">
-                        <Border Background="{StaticResource SurfaceSecondary}" CornerRadius="2" />
-                        <ProgressBar Value="{Binding RamUsed}" Maximum="{Binding RamTotal}" BorderThickness="0" Background="Transparent" Foreground="{StaticResource SemanticHealthy}"/>
-                    </Grid>
-                </StackPanel>
-
-                <!-- STORAGE -->
-                <StackPanel Grid.Row="2" Grid.Column="2">
-                    <Grid Margin="0,0,0,8">
-                        <TextBlock Text="STORAGE" Style="{StaticResource TextLabel}"/>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                            <TextBlock Text="{Binding SsdUsedSpace, StringFormat={}{0:F0} GB}" Style="{StaticResource TextMetricValue}"/>
-                            <TextBlock Text="{Binding SsdTotalSpace, StringFormat= / {0:F0} GB}" Style="{StaticResource TextBody}" Foreground="{StaticResource TextMuted}" VerticalAlignment="Bottom" Margin="4,0,0,0"/>
-                        </StackPanel>
-                    </Grid>
-                    <Grid Height="4">
-                        <Border Background="{StaticResource SurfaceSecondary}" CornerRadius="2" />
-                        <ProgressBar Value="{Binding SsdUsedSpace}" Maximum="{Binding SsdTotalSpace}" BorderThickness="0" Background="Transparent" Foreground="{StaticResource SemanticWarning}"/>
-                    </Grid>
-                    <TextBlock Text="{Binding SsdHealth, StringFormat=Health: {0:F0}%}" Style="{StaticResource TextBody}" Margin="0,4,0,0"/>
+                    <!-- STORAGE -->
+                    <StackPanel Margin="0,8,0,0">
+                        <Grid Margin="0,0,0,8">
+                            <TextBlock Text="STORAGE" Style="{StaticResource TextLabel}"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding SsdUsedSpace, StringFormat={}{0:F0} GB}" Style="{StaticResource TextMetricValue}"/>
+                                <TextBlock Text="{Binding SsdTotalSpace, StringFormat= / {0:F0} GB}" Style="{StaticResource TextBody}" Foreground="{StaticResource TextMuted}" VerticalAlignment="Bottom" Margin="4,0,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                        <Grid Height="4">
+                            <Border Background="{StaticResource SurfaceSecondary}" CornerRadius="2" />
+                            <ProgressBar Value="{Binding SsdUsedSpace}" Maximum="{Binding SsdTotalSpace}" BorderThickness="0" Background="Transparent" Foreground="{StaticResource SemanticWarning}"/>
+                        </Grid>
+                        <TextBlock Text="{Binding SsdHealth, StringFormat=Health: {0:F0}%}" Style="{StaticResource TextBody}" Margin="0,4,0,0"/>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
 
@@ -216,3 +278,5 @@
         </Grid>
     </Border>
 </Window>
+
+

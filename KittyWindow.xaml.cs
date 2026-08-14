@@ -38,6 +38,7 @@ public partial class KittyWindow : Window
         }
         else
         {
+            this.DataContext = vm;
             SyncAllValues(vm);
             Show();
             vm.IsPopupVisible = true;
@@ -56,7 +57,7 @@ public partial class KittyWindow : Window
     /// </summary>
     public void SyncAllValues(MainViewModel vm)
     {
-        // Skip updates while the user is dragging the popup – this drops UI work during move
+        // Skip updates while the user is dragging the popup â€“ this drops UI work during move
         if (_isDragging) return;
 
         HealthScoreText.Text = $"{vm.HealthScore} Healthy";
@@ -67,14 +68,7 @@ public partial class KittyWindow : Window
         CpuFill.Width = new GridLength(vm.CpuUsage, GridUnitType.Star);
         CpuEmpty.Width = new GridLength(Math.Max(0, 100 - vm.CpuUsage), GridUnitType.Star);
 
-        // ── GPU ──
-        GpuText.Text = $"{vm.GpuUsage:F0}%";
-        GpuTempText.Text = $"{vm.GpuTemp:F0}°C";
-        GpuVramText.Text = $"VRAM {vm.GpuVram:F1} / {vm.GpuVramTotal:F0} GB";
-        GpuFill.Width = new GridLength(vm.GpuUsage, GridUnitType.Star);
-        GpuEmpty.Width = new GridLength(Math.Max(0, 100 - vm.GpuUsage), GridUnitType.Star);
-
-        // ── RAM ──
+        // â”€â”€ RAM â”€â”€
         float ramPct = vm.RamTotal > 0 ? (vm.RamUsed / vm.RamTotal) * 100f : 0;
         RamText.Text = $"{ramPct:F0}%";
         RamFill.Width = new GridLength(ramPct, GridUnitType.Star);
@@ -91,6 +85,15 @@ public partial class KittyWindow : Window
         NetUpText.Text = $"{vm.UploadMbps:F1} Mbps";
         
         DrawSparkline(vm.NetworkSpeedHistory);
+
+        // Force GPU binding update just in case
+        if (GpuItemsControl != null)
+        {
+            if (GpuItemsControl.ItemsSource != vm.Gpus)
+            {
+                GpuItemsControl.ItemsSource = vm.Gpus;
+            }
+        }
     }
 
     private void DrawSparkline(ObservableCollection<double> source)
@@ -121,7 +124,7 @@ public partial class KittyWindow : Window
     {
         _isPinned = !_isPinned;
         Topmost = _isPinned;
-        PinButton.Content = _isPinned ? "📌" : "📍";
+        PinButton.Content = _isPinned ? "ðŸ“Œ" : "ðŸ“";
     }
 
     private void ClosePopup_Click(object sender, RoutedEventArgs e)
@@ -150,3 +153,5 @@ public partial class KittyWindow : Window
         _isDragging = false;
     }
 }
+
+

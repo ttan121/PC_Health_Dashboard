@@ -1,15 +1,17 @@
+using LibreHardwareMonitor.Hardware;
+using PCHealthDashboard.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using LibreHardwareMonitor.Hardware;
-using System.IO;
-using PCHealthDashboard.ViewModels;
 
 namespace PCHealthDashboard.Services;
 
 public class UpdateVisitor : IVisitor
 {
-    public void VisitComputer(IComputer computer) { computer.Traverse(this); }
+    public void VisitComputer(IComputer computer)
+    {
+        computer.Traverse(this);
+    }
     public void VisitHardware(IHardware hardware)
     {
         hardware.Update();
@@ -24,7 +26,7 @@ public class HardwareMonitorService : IDisposable
     private readonly Computer _computer;
     private readonly UpdateVisitor _updateVisitor;
     private IHardware? _cpu;
-    private IHardware? _gpu;
+    private readonly List<IHardware> _gpus = new();
     private IHardware? _ram;
 
     public HardwareMonitorService()
@@ -34,8 +36,9 @@ public class HardwareMonitorService : IDisposable
             IsCpuEnabled = true,
             IsGpuEnabled = true,
             IsMemoryEnabled = true,
-            IsStorageEnabled = true,
-            IsMotherboardEnabled = true
+            IsStorageEnabled = false,
+            IsMotherboardEnabled = false,
+            IsNetworkEnabled = true
         };
         
         _updateVisitor = new UpdateVisitor();
@@ -48,10 +51,17 @@ public class HardwareMonitorService : IDisposable
     private void InitializeHardware()
     {
         _cpu = _computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Cpu);
-        _gpu = _computer.Hardware.FirstOrDefault(h => 
+        
+        var gpus = _computer.Hardware.Where(h => 
             h.HardwareType == HardwareType.GpuNvidia || 
             h.HardwareType == HardwareType.GpuAmd || 
-            h.HardwareType == HardwareType.GpuIntel);
+            h.HardwareType == HardwareType.GpuIntel).ToList();
+            
+        foreach (var gpu in gpus)
+        {
+            _gpus.Add(gpu);
+        }
+
         _ram = _computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Memory);
     }
 
@@ -59,202 +69,171 @@ public class HardwareMonitorService : IDisposable
 
     public void Update(bool fullUpdate = true)
     {
-        try 
-        { 
-            _cpu?.Update();
-            _gpu?.Update();
-            _ram?.Update();
-
-            if (fullUpdate)
-            {
-                // Storage and Motherboard sensors are very CPU intensive to poll (especially SMART data).
-                // We only update them once every 10 ticks (~10 seconds) to save CPU.
-                if (_updateCounter % 10 == 0)
-                {
-                    var mb = _computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Motherboard);
-                    mb?.Update();
-
-                    var drives = _computer.Hardware.Where(h => h.HardwareType == HardwareType.Storage);
-                    foreach (var drive in drives) drive.Update();
-                }
-                _updateCounter++;
-            }
-        } 
-        catch { }
-    }
-
-    public (float Temp, float Usage) GetCpuStats()
-    {
-        float temp = 0f, usage = 0f;
-        if (_cpu != null)
-        {
-            var tempSensor = _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature && s.Name.Contains("Package")) 
-                             ?? _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
-            
-            var usageSensor = _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name.Contains("Total"))
-                              ?? _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load);
-            
-            if (tempSensor?.Value != null) temp = tempSensor.Value.Value;
-            if (usageSensor?.Value != null) usage = usageSensor.Value.Value;
-        }
-        
-        // Fallback to motherboard temp if CPU temp is 0
-        if (temp == 0f)
-        {
-            var mb = _computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Motherboard);
-            var mbTemp = mb?.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
-            if (mbTemp?.Value != null) temp = mbTemp.Value.Value;
-        }
-
-        return (temp, usage);
-    }
-
-    public (float Temp, float Load, float VramUsed, float VramTotal) GetGpuStats()
-    {
-        float temp = 0f, load = 0f, vram = 0f, vramTotal = 8f;
-        if (_gpu != null)
-        {
-            var tempSensor = _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
-            var loadSensor = _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name.Contains("Core"))
-                             ?? _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load);
-            // Try to find dedicated memory first, then fallback to any memory used
-            var vramSensor = _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Dedicated Memory Used"))
-                             ?? _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Used"));
-                             
-            var vramTotalSensor = _gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Total"));
-            if (vramTotalSensor?.Value != null) vramTotal = vramTotalSensor.Value.Value / 1024f; // MB to GB
-            
-            if (tempSensor?.Value != null) temp = tempSensor.Value.Value;
-            if (loadSensor?.Value != null) load = loadSensor.Value.Value;
-            if (vramSensor?.Value != null) vram = vramSensor.Value.Value / 1024f; // Convert MB to GB
-        }
-        return (temp, load, vram, vramTotal);
-    }
-
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct MEMORYSTATUSEX
-    {
-        public uint dwLength;
-        public uint dwMemoryLoad;
-        public ulong ullTotalPhys;
-        public ulong ullAvailPhys;
-        public ulong ullTotalPageFile;
-        public ulong ullAvailPageFile;
-        public ulong ullTotalVirtual;
-        public ulong ullAvailVirtual;
-        public ulong ullAvailExtendedVirtual;
-    }
-
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-    private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
-
-    public (float UsedGB, float TotalGB) GetRamStats()
-    {
-        var memStatus = new MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MEMORYSTATUSEX>() };
-        if (GlobalMemoryStatusEx(ref memStatus))
-        {
-            float totalGB = memStatus.ullTotalPhys / (1024f * 1024f * 1024f);
-            float availGB = memStatus.ullAvailPhys / (1024f * 1024f * 1024f);
-            return (totalGB - availGB, totalGB);
-        }
-        return (0f, 16f);
-    }
-
-    public List<DriveStatus> GetDrivesStats()
-    {
-        var list = new List<DriveStatus>();
-        
+        _updateCounter++;
         try
         {
-            var logicalDrives = DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType == DriveType.Fixed).ToList();
-            var physicalDrives = _computer.Hardware.Where(h => h.HardwareType == HardwareType.Storage).ToList();
-            
-            if (physicalDrives.Count == 1)
+            _cpu?.Update();
+            _ram?.Update();
+            foreach (var gpu in _gpus)
             {
-                // The user only has 1 physical drive (e.g. 1 SSD partitioned into C: and D:).
-                // They want to see exactly 1 bar for their SSD, not split by partitions.
-                var hw = physicalDrives[0];
-                var hwName = hw.Name?.ToUpper() ?? "";
-                
-                var status = new DriveStatus
-                {
-                    Name = string.IsNullOrWhiteSpace(hw.Name) ? "Local Disk" : hw.Name, // Fallback if name is empty
-                    TotalGB = logicalDrives.Sum(d => d.TotalSize) / (1024f * 1024f * 1024f),
-                    FreeGB = logicalDrives.Sum(d => d.AvailableFreeSpace) / (1024f * 1024f * 1024f),
-                    Type = (hwName.Contains("HDD") || hwName.Contains("HARD DISK")) ? "HDD" : "SSD",
-                    Interface = hwName.Contains("NVME") ? "NVMe" : "SATA"
-                };
-
-                var tempSensor = hw.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
-                var healthSensor = hw.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Level && (s.Name.Contains("Health") || s.Name.Contains("Remaining") || s.Name.Contains("Life")));
-                
-                // Fallback temp if sensor not found
-                if (tempSensor?.Value != null) status.Temp = tempSensor.Value.Value;
-                else
-                {
-                    var mb = _computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Motherboard);
-                    var mbTemp = mb?.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
-                    status.Temp = mbTemp?.Value ?? 0f; // Use motherboard temp if available, otherwise 0
-                }
-
-                status.Health = healthSensor?.Value != null ? Math.Min(100f, healthSensor.Value.Value) : 0f;
-
-                list.Add(status);
+                gpu.Update();
             }
-            else
+
+            // Only full update storage/network every 3 ticks to save CPU
+            if (fullUpdate || _updateCounter % 3 == 0)
             {
-                // Multiple physical drives: fallback to showing logical partitions (C:, D:)
-                foreach (var d in logicalDrives)
+                foreach (var hw in _computer.Hardware)
                 {
-                    string letter = d.Name.Replace("\\", "");
-                    
-                    var status = new DriveStatus
+                    if (hw.HardwareType == HardwareType.Storage || hw.HardwareType == HardwareType.Network)
                     {
-                        Name = $"Drive {letter}",
-                        TotalGB = d.TotalSize / (1024f * 1024f * 1024f),
-                        FreeGB = d.AvailableFreeSpace / (1024f * 1024f * 1024f)
-                    };
-
-                    // Try to guess the physical drive
-                    var hwMatch = physicalDrives.FirstOrDefault(); 
-
-                    if (hwMatch != null)
-                    {
-                        var hwName = hwMatch.Name?.ToUpper() ?? "";
-                        var tempSensor = hwMatch.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
-                        var healthSensor = hwMatch.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Level && (s.Name.Contains("Health") || s.Name.Contains("Remaining")));
-                        
-                        if (tempSensor?.Value != null) status.Temp = tempSensor.Value.Value;
-                        else
-                        {
-                            var mb = _computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Motherboard);
-                            var mbTemp = mb?.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
-                            status.Temp = mbTemp?.Value ?? 0f;
-                        }
-
-                        status.Health = healthSensor?.Value != null ? Math.Min(100f, healthSensor.Value.Value) : 0f;
-                        status.Type = (hwName.Contains("HDD") || hwName.Contains("HARD DISK")) ? "HDD" : "SSD";
-                        status.Interface = hwName.Contains("NVME") ? "NVMe" : "SATA";
+                        hw.Update();
                     }
-                    else
-                    {
-                        status.Type = "SSD";
-                        status.Interface = "SATA";
-                    }
-                    
-                    list.Add(status);
                 }
             }
         }
         catch { }
+    }
 
-        if (list.Count == 0)
+    public (float usage, float temp, float power, float clock) GetCpuStats()
+    {
+        float load = 0f, temp = 0f, power = 0f, clock = 0f;
+        if (_cpu != null)
         {
-            list.Add(new DriveStatus { Name = "Drive C:", TotalGB = 512, FreeGB = 92, Health = 96, Temp = 40 });
-        }
+            var loadSensor = _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name.Contains("Total"));
+            var tempSensor = _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature && s.Name.Contains("Package"))
+                          ?? _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature && s.Name.Contains("Core Max"))
+                          ?? _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature && s.Name.Contains("Core Average"))
+                          ?? _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
+            var powerSensor = _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Power && s.Name.Contains("Package"));
+            var clockSensor = _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Clock);
 
-        return list;
+            if (loadSensor?.Value != null) load = loadSensor.Value.Value;
+            if (tempSensor?.Value != null) temp = tempSensor.Value.Value;
+            if (powerSensor?.Value != null) power = powerSensor.Value.Value;
+            if (clockSensor?.Value != null) clock = clockSensor.Value.Value;
+
+            if (temp == 0f)
+            {
+                temp = 45f; // User requested fallback to 45 if IC is locked/unreadable
+            }
+        }
+        return (load, temp, power, clock);
+    }
+
+    public List<GpuStatModel> GetGpusStats()
+    {
+        var result = new List<GpuStatModel>();
+        
+        foreach (var gpu in _gpus)
+        {
+            var stat = new GpuStatModel
+            {
+                Id = gpu.Identifier.ToString(),
+                Name = gpu.Name,
+                VramTotal = 8f // Default fallback
+            };
+
+            var tempSensor = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
+            var loadSensor = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name.Contains("Core"))
+                             ?? gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load);
+            
+            var dedicatedVramSensor = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Dedicated Memory Used"));
+            var sharedVramSensor = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Used"));
+            
+            var vramSensor = dedicatedVramSensor ?? sharedVramSensor;
+            
+            if (vramSensor != null)
+            {
+                stat.IsVramAvailable = true;
+                stat.IsSharedMemory = dedicatedVramSensor == null;
+                stat.VramUsed = vramSensor.Value.GetValueOrDefault() / 1024f; // MB to GB
+            }
+
+            var vramTotalSensor = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Total"));
+            if (vramTotalSensor?.Value != null) 
+            {
+                stat.VramTotal = vramTotalSensor.Value.Value / 1024f; // MB to GB
+            }
+            else if (stat.IsSharedMemory && _ram != null)
+            {
+                // Fallback for iGPU: VRAM total might just be half of RAM or dynamic. Just keep it available but maybe not accurate total.
+                stat.VramTotal = GetRamStats().total; // Just a rough estimate if missing
+            }
+            
+            if (tempSensor?.Value != null) stat.Temperature = tempSensor.Value.Value;
+            if (loadSensor?.Value != null) stat.Usage = loadSensor.Value.Value;
+            
+            result.Add(stat);
+        }
+        
+        return result;
+    }
+
+    public (float used, float total) GetRamStats()
+    {
+        float used = 0f, total = 16f;
+        if (_ram != null)
+        {
+            var usedSensor = _ram.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Data && s.Name.Contains("Memory Used"));
+            var availSensor = _ram.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Data && s.Name.Contains("Memory Available"));
+            
+            if (usedSensor?.Value != null && availSensor?.Value != null)
+            {
+                used = usedSensor.Value.Value;
+                total = used + availSensor.Value.Value;
+            }
+        }
+        return (used, total);
+    }
+
+    public (float read, float write, float usedSpace, float totalSpace) GetStorageStats()
+    {
+        float read = 0f, write = 0f, usedSpace = 0f, totalSpace = 0f;
+        
+        foreach (var hw in _computer.Hardware.Where(h => h.HardwareType == HardwareType.Storage))
+        {
+            var readSensor = hw.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Data && s.Name.Contains("Read Rate"));
+            var writeSensor = hw.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Data && s.Name.Contains("Write Rate"));
+            var loadSensor = hw.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name.Contains("Used Space"));
+            
+            if (readSensor?.Value != null) read += readSensor.Value.Value;
+            if (writeSensor?.Value != null) write += writeSensor.Value.Value;
+            
+            // Just sum total capacity for simplicity or pick the primary drive
+            // LHM might not reliably expose total space easily without WMI, but let's approximate or just stick to usage
+            // A more robust implementation would use DriveInfo for capacity.
+        }
+        
+        // Use DriveInfo for accurate space
+        try
+        {
+            var drive = System.IO.DriveInfo.GetDrives().FirstOrDefault(d => d.IsReady && d.DriveType == System.IO.DriveType.Fixed);
+            if (drive != null)
+            {
+                totalSpace = drive.TotalSize / (1024f * 1024f * 1024f); // GB
+                usedSpace = totalSpace - (drive.AvailableFreeSpace / (1024f * 1024f * 1024f));
+            }
+        }
+        catch { }
+
+        return (read, write, usedSpace, totalSpace);
+    }
+
+    public (float download, float upload) GetNetworkStats()
+    {
+        float down = 0f, up = 0f;
+        var activeNetworks = _computer.Hardware.Where(h => h.HardwareType == HardwareType.Network);
+        foreach (var net in activeNetworks)
+        {
+            var dlSensor = net.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Throughput && s.Name.Contains("Download"));
+            var ulSensor = net.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Throughput && s.Name.Contains("Upload"));
+            
+            if (dlSensor?.Value != null) down += dlSensor.Value.Value;
+            if (ulSensor?.Value != null) up += ulSensor.Value.Value;
+        }
+        
+        // Convert Bytes/s to Mbps
+        return (down * 8 / 1048576f, up * 8 / 1048576f);
     }
 
     public void Dispose()
@@ -262,3 +241,4 @@ public class HardwareMonitorService : IDisposable
         try { _computer.Close(); } catch { }
     }
 }
+

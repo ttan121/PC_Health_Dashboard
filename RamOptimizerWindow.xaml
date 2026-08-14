@@ -1,0 +1,91 @@
+<Window x:Class="PCHealthDashboard.RamOptimizerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Tối ưu RAM (Memory Optimizer)" Height="550" Width="450"
+        Background="{StaticResource SurfacePrimary}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False">
+    
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Working Set Optimization" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextPrimary}" Margin="0,0,0,5"/>
+        <TextBlock Grid.Row="1" Text="Select applications to conservatively trim their memory footprint. Reclaimed memory may be paged back in when needed." 
+                   TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}" Margin="0,0,0,15"/>
+
+        <Border Grid.Row="2" Background="{StaticResource SurfaceSecondary}" CornerRadius="6" Padding="2">
+            <ListView ItemsSource="{Binding Processes}" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextPrimary}">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Margin" Value="0,2"/>
+                        <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.View>
+                    <GridView>
+                        <GridView.ColumnHeaderContainerStyle>
+                            <Style TargetType="GridViewColumnHeader">
+                                <Setter Property="Background" Value="{StaticResource SurfaceSecondary}"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+                                <Setter Property="Padding" Value="5"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                            </Style>
+                        </GridView.ColumnHeaderContainerStyle>
+                        <GridViewColumn Width="40">
+                            <GridViewColumn.Header>
+                                <CheckBox IsChecked="{Binding DataContext.IsAllSelected, RelativeSource={RelativeSource AncestorType=Window}}" HorizontalAlignment="Center"/>
+                            </GridViewColumn.Header>
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding IsSelected}" HorizontalAlignment="Center"/>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="Process" Width="180">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding ProcessName}" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="Working Set" Width="120">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding WorkingSet64, StringFormat={}{0:N0} Bytes}" HorizontalAlignment="Right"/>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Border>
+
+        <StackPanel Grid.Row="3" Margin="0,15,0,0">
+            <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource TextPrimary}" FontSize="12" FontStyle="Italic" Margin="0,0,0,5"/>
+            <TextBlock Text="{Binding ResultSummary}" Foreground="{StaticResource SemanticHealthy}" FontWeight="Bold" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,15"/>
+        </StackPanel>
+
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Content="⟳ Làm mới" Command="{Binding LoadProcessesCommand}" Margin="0,0,10,0"
+                    Background="{StaticResource SurfaceSecondary}" Foreground="{StaticResource TextPrimary}" BorderBrush="{StaticResource BorderNeutral}" Padding="10,5"/>
+            <Button Grid.Column="1" Content="Tối ưu ngay" Command="{Binding OptimizeCommand}" Width="120"
+                    Background="{StaticResource SemanticInfo}" Foreground="{StaticResource TextPrimary}" BorderThickness="0" Padding="10,5"/>
+        </Grid>
+    </Grid>
+</Window>

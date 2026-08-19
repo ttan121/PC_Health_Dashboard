@@ -1,4 +1,4 @@
-namespace PCHealthDashboard.Models
+﻿namespace PCHealthDashboard.Models
 {
     public enum AlertSeverity
     {

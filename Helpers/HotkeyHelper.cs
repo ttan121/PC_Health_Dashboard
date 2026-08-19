@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
 
@@ -33,7 +33,6 @@ public class HotkeyHelper : IDisposable
         source.AddHook(HwndHook);
 
         uint keySpace = 0x20; // Space
-        uint keyC = 0x43; // C key (Fallback or alternative)
         
         // Register Ctrl + Shift + Space for Popup
         RegisterHotKey(_hwnd, _idPopup, MOD_CONTROL | MOD_SHIFT, keySpace);

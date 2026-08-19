@@ -60,10 +60,10 @@
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
-                        <GridViewColumn Header="Working Set" Width="120">
+                        <GridViewColumn Header="Working Set (MB)" Width="120">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding WorkingSet64, StringFormat={}{0:N0} Bytes}" HorizontalAlignment="Right"/>
+                                    <TextBlock Text="{Binding WorkingSetMB, StringFormat={}{0:N0} MB}" HorizontalAlignment="Right"/>
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>

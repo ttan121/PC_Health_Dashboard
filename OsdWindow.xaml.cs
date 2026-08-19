@@ -1,4 +1,4 @@
-using PCHealthDashboard.ViewModels;
+﻿using PCHealthDashboard.ViewModels;
 using System.Windows;
 using System.Windows.Input;
 

@@ -1,4 +1,4 @@
-using LibreHardwareMonitor.Hardware;
+﻿using LibreHardwareMonitor.Hardware;
 using PCHealthDashboard.Models;
 using System;
 using System.Collections.Generic;

@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace PCHealthDashboard.Models;
 
@@ -27,6 +27,12 @@ public partial class ProcessItem : ObservableObject
 {
     [ObservableProperty] private int _pid;
     [ObservableProperty] private string _processName = string.Empty;
-    [ObservableProperty] private long _workingSet64;
+    
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(WorkingSetMB))]
+    private long _workingSet64;
+    
     [ObservableProperty] private bool _isSelected;
+
+    public double WorkingSetMB => WorkingSet64 / 1024.0 / 1024.0;
 }

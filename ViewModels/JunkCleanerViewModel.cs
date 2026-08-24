@@ -1,10 +1,14 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PCHealthDashboard.Helpers;
+using PCHealthDashboard.Models;
+using PCHealthDashboard.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 
@@ -14,9 +18,10 @@ public partial class JunkItem : ObservableObject
 {
     [ObservableProperty] private string _filePath = string.Empty;
     [ObservableProperty] private long _size;
+    [ObservableProperty] private string _category = "Temp";
     [ObservableProperty] private bool _isSelected = true;
 
-    public string SizeStr => $"{Size / 1024.0 / 1024.0:F2} MB";
+    public string SizeStr => ByteSizeFormatter.FormatBytes(Size);
 }
 
 public partial class DriveSelectionItem : ObservableObject
@@ -28,146 +33,225 @@ public partial class DriveSelectionItem : ObservableObject
 
 public partial class JunkCleanerViewModel : ObservableObject
 {
+    private readonly IDiskCleanerService _diskCleanerService;
+    private CancellationTokenSource? _cts;
+
     [ObservableProperty] private ObservableCollection<DriveSelectionItem> _drives = new();
     [ObservableProperty] private ObservableCollection<JunkItem> _junkFiles = new();
     
     [ObservableProperty] private string _statusMessage = "Ready";
     [ObservableProperty] private bool _isScanning = false;
     [ObservableProperty] private bool _isCleaning = false;
-    [ObservableProperty] private bool _canClean = false;
-    [ObservableProperty] private bool _canScan = true;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CleanCommand))]
+    private bool _canClean = false;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
+    private bool _canScan = true;
 
     [ObservableProperty] private string _totalJunkSize = "0 MB";
 
-    public JunkCleanerViewModel()
+    public JunkCleanerViewModel() : this(new DiskCleanerService())
     {
+    }
+
+    public JunkCleanerViewModel(IDiskCleanerService diskCleanerService)
+    {
+        _diskCleanerService = diskCleanerService ?? throw new ArgumentNullException(nameof(diskCleanerService));
         LoadDrives();
+    }
+
+    public void UpdateTotalJunkSize()
+    {
+        var selected = JunkFiles.Where(x => x.IsSelected).ToList();
+        long totalSelectedBytes = selected.Sum(x => x.Size);
+        TotalJunkSize = ByteSizeFormatter.FormatBytes(totalSelectedBytes);
+        CanClean = !IsScanning && !IsCleaning && totalSelectedBytes > 0 && selected.Count > 0;
     }
 
     private void LoadDrives()
     {
-        foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType == DriveType.Fixed))
+        try
         {
+            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType == DriveType.Fixed))
+            {
+                long freeGb = drive.AvailableFreeSpace / 1024 / 1024 / 1024;
+                Drives.Add(new DriveSelectionItem
+                {
+                    DriveName = drive.Name,
+                    DisplayName = $"Ổ đĩa {drive.Name} ({drive.VolumeLabel}) - Trống {freeGb} GB",
+                    IsSelected = true
+                });
+            }
+        }
+        catch
+        {
+            // Fallback default
             Drives.Add(new DriveSelectionItem
             {
-                DriveName = drive.Name,
-                DisplayName = $"Ổ đĩa {drive.Name} ({drive.VolumeLabel}) - Trống {drive.AvailableFreeSpace / 1024 / 1024 / 1024} GB",
+                DriveName = "C:\\",
+                DisplayName = "Ổ đĩa C:\\ (Hệ thống)",
                 IsSelected = true
             });
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanScan))]
     private async Task ScanAsync()
     {
+        if (IsScanning || IsCleaning) return;
+
         IsScanning = true;
         CanScan = false;
         CanClean = false;
         JunkFiles.Clear();
         TotalJunkSize = "0 MB";
-        
-        string sysDrive = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.System)) ?? "C:\\";
+        StatusMessage = "Scanning system cache, temp folders, and browser data...";
 
-        foreach (var driveItem in Drives.Where(d => d.IsSelected))
-        {
-            await ScanDirectoryAsync(Path.Combine(driveItem.DriveName, "$Recycle.Bin"));
-            await ScanDirectoryAsync(Path.Combine(driveItem.DriveName, "Temp"));
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
 
-            if (driveItem.DriveName.Equals(sysDrive, StringComparison.OrdinalIgnoreCase))
-            {
-                await ScanDirectoryAsync(Path.GetTempPath());
-                await ScanDirectoryAsync(Path.Combine(sysDrive, "Windows", "Temp"));
-                await ScanDirectoryAsync(Path.Combine(sysDrive, "Windows", "SoftwareDistribution", "Download"));
-            }
-        }
-
-        long totalSize = JunkFiles.Sum(x => x.Size);
-        TotalJunkSize = $"{totalSize / 1024.0 / 1024.0:F2} MB";
-        StatusMessage = $"Scan completed. Found {JunkFiles.Count} files.";
-
-        IsScanning = false;
-        CanScan = true;
-        if (JunkFiles.Any()) CanClean = true;
-    }
-
-    private async Task ScanDirectoryAsync(string path)
-    {
         try
         {
-            System.Windows.Application.Current.Dispatcher.Invoke(() => StatusMessage = $"Scanning: {path}");
-            var dir = new DirectoryInfo(path);
-            if (!dir.Exists) return;
+            var selectedDrives = Drives.Where(d => d.IsSelected).Select(d => d.DriveName).ToList();
+            var scanResult = await _diskCleanerService.ScanJunkAsync(selectedDrives, _cts.Token);
 
-            var resultItems = new List<JunkItem>();
-
-            await Task.Run(() => {
-                try
+            // Dispatch items to UI in batches of 100 to avoid freezing
+            const int batchSize = 100;
+            for (int i = 0; i < scanResult.Files.Count; i += batchSize)
+            {
+                if (_cts.Token.IsCancellationRequested) break;
+                var batch = scanResult.Files.Skip(i).Take(batchSize).Select(f =>
                 {
-                    foreach (var file in dir.GetFiles())
+                    var item = new JunkItem
                     {
-                        try { resultItems.Add(new JunkItem { FilePath = file.FullName, Size = file.Length }); } catch { }
-                    }
-                }
-                catch { }
-            });
+                        FilePath = f.FilePath,
+                        Size = f.SizeBytes,
+                        Category = f.Category,
+                        IsSelected = true
+                    };
+                    item.PropertyChanged += (s, e) =>
+                    {
+                        if (e.PropertyName == nameof(JunkItem.IsSelected))
+                        {
+                            UpdateTotalJunkSize();
+                        }
+                    };
+                    return item;
+                }).ToList();
 
-            if (resultItems.Any())
-            {
-                System.Windows.Application.Current.Dispatcher.Invoke(() => 
+                foreach (var item in batch)
                 {
-                    foreach(var item in resultItems) JunkFiles.Add(item);
-                });
+                    JunkFiles.Add(item);
+                }
             }
 
-            var dirs = await Task.Run(() => {
-                try { return dir.GetDirectories(); } catch { return new DirectoryInfo[0]; }
-            });
-
-            foreach (var subDir in dirs)
-            {
-                await ScanDirectoryAsync(subDir.FullName);
-            }
+            UpdateTotalJunkSize();
+            long totalSize = scanResult.TotalSizeBytes;
+            StatusMessage = $"Scan complete. Found {scanResult.TotalFilesCount:N0} junk files ({ByteSizeFormatter.FormatBytes(totalSize)}).";
         }
-        catch { }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "Scan cancelled.";
+            UpdateTotalJunkSize();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Scan error: {ex.Message}";
+            UpdateTotalJunkSize();
+        }
+        finally
+        {
+            IsScanning = false;
+            CanScan = true;
+            UpdateTotalJunkSize();
+        }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanClean))]
     private async Task CleanAsync()
     {
+        if (IsCleaning || IsScanning) return;
+
+        var toDelete = JunkFiles.Where(x => x.IsSelected).ToList();
+        if (!toDelete.Any())
+        {
+            StatusMessage = "No items selected for cleaning.";
+            UpdateTotalJunkSize();
+            return;
+        }
+
         IsCleaning = true;
         CanClean = false;
         CanScan = false;
-        
-        long freed = 0;
-        var toDelete = JunkFiles.Where(x => x.IsSelected).ToList();
-        
-        await Task.Run(() => 
+        StatusMessage = "Starting safe disk cleanup...";
+
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+
+        var progress = new Progress<DiskCleaningProgress>(p =>
         {
-            int count = 0;
-            foreach (var item in toDelete)
-            {
-                try
-                {
-                    count++;
-                    if (count % 10 == 0)
-                    {
-                        System.Windows.Application.Current.Dispatcher.Invoke(() => StatusMessage = $"Deleting: {item.FilePath}");
-                    }
-                    File.Delete(item.FilePath);
-                    freed += item.Size;
-                    
-                    System.Windows.Application.Current.Dispatcher.Invoke(() => JunkFiles.Remove(item));
-                }
-                catch { }
-            }
+            StatusMessage = $"Cleaning: {p.FilesDeleted:N0} deleted ({p.CleanedMB:F1} MB), {p.FilesSkippedLocked:N0} locked skipped";
         });
 
-        TotalJunkSize = $"{JunkFiles.Sum(x => x.Size) / 1024.0 / 1024.0:F2} MB";
-        StatusMessage = $"Cleaned {freed / 1024.0 / 1024.0:F2} MB of junk files.";
-        System.Windows.MessageBox.Show($"Đã dọn dẹp {(freed / 1024.0 / 1024.0):F2} MB rác hệ thống thành công!", "Hoàn tất", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+        try
+        {
+            var selectedDrives = Drives.Where(d => d.IsSelected).Select(d => d.DriveName).ToList();
+            var filePaths = toDelete.Select(x => x.FilePath).ToList();
 
-        IsCleaning = false;
-        CanScan = true;
-        if (JunkFiles.Any()) CanClean = true;
+            var report = await _diskCleanerService.CleanSpecificFilesAsync(
+                filePaths,
+                emptyRecycleBin: true,
+                selectedDrives,
+                progress,
+                _cts.Token
+            );
+
+            // Update remaining junk items
+            var remaining = JunkFiles.Where(x => !x.IsSelected).ToList();
+            JunkFiles.Clear();
+            foreach (var r in remaining)
+            {
+                r.PropertyChanged += (s, e) =>
+                {
+                    if (e.PropertyName == nameof(JunkItem.IsSelected))
+                    {
+                        UpdateTotalJunkSize();
+                    }
+                };
+                JunkFiles.Add(r);
+            }
+
+            UpdateTotalJunkSize();
+            StatusMessage = $"Cleaned {report.TotalCleanedMB:F2} MB. {report.FilesDeleted:N0} deleted, {report.FilesSkippedLocked:N0} locked files skipped safely.";
+
+            System.Windows.MessageBox.Show(
+                $"Dọn dẹp hoàn tất!\n\n" +
+                $"• Dung lượng giải phóng: {report.TotalCleanedMB:F2} MB\n" +
+                $"• Tệp đã xóa: {report.FilesDeleted:N0}\n" +
+                $"• Tệp đang khóa (bỏ qua an toàn): {report.FilesSkippedLocked:N0}\n" +
+                $"• Thùng rác (Recycle Bin): {(report.RecycleBinEmptied ? "Đã dọn sạch" : "Bỏ qua")}\n" +
+                $"• Thư mục rỗng đã xóa: {report.DirectoriesRemoved:N0}\n" +
+                $"• Thời gian thực thi: {report.Duration.TotalSeconds:F2}s",
+                "Dọn dẹp rác hệ thống",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information
+            );
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "Cleanup cancelled.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Cleanup error: {ex.Message}";
+        }
+        finally
+        {
+            IsCleaning = false;
+            CanScan = true;
+            UpdateTotalJunkSize();
+        }
     }
 }

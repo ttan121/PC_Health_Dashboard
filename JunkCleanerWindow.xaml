@@ -94,7 +94,7 @@
             
             <Button Grid.Column="1" Content="Hủy" Click="CancelButton_Click" Background="Transparent" Foreground="{StaticResource TextMuted}" BorderThickness="0" Padding="15,8" Margin="0,0,10,0" Cursor="Hand"/>
             <Button Grid.Column="2" Content="Quét Rác" Command="{Binding ScanCommand}" IsEnabled="{Binding CanScan}" Background="{StaticResource SurfaceSecondary}" Foreground="{StaticResource TextPrimary}" BorderBrush="{StaticResource BorderNeutral}" Padding="15,8" Margin="0,0,10,0" Cursor="Hand"/>
-            <Button Grid.Column="3" Content="Dọn Dẹp Ngay" Command="{Binding CleanCommand}" IsEnabled="{Binding CanClean}" Background="{StaticResource SemanticInfo}" Foreground="{StaticResource TextPrimary}" BorderThickness="0" Padding="15,8" Cursor="Hand" FontWeight="SemiBold"/>
+            <Button Grid.Column="3" Content="Dọn Dẹp Ngay" Command="{Binding CleanCommand}" IsEnabled="{Binding CanClean}" Style="{StaticResource PrimaryButtonStyle}"/>
         </Grid>
     </Grid>
 </Window>

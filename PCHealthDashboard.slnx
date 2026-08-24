@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="PCHealthDashboard.csproj" />
+  <Project Path="Tests/PCHealthDashboard.Tests/PCHealthDashboard.Tests.csproj" />
 </Solution>

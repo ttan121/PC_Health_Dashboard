@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
 
@@ -19,6 +19,7 @@ public class HotkeyHelper : IDisposable
     private readonly IntPtr _hwnd;
     private readonly int _idPopup = 9000;
     private readonly int _idCompact = 9001;
+    private readonly int _idCompactC = 9002;
     
     private Action _onPopupHotKeyPressed;
     private Action _onCompactHotKeyPressed;
@@ -33,12 +34,14 @@ public class HotkeyHelper : IDisposable
         source.AddHook(HwndHook);
 
         uint keySpace = 0x20; // Space
+        uint keyC = 0x43;     // 'C'
         
         // Register Ctrl + Shift + Space for Popup
         RegisterHotKey(_hwnd, _idPopup, MOD_CONTROL | MOD_SHIFT, keySpace);
         
-        // Register Ctrl + Shift + Alt + Space for Compact Mode
+        // Register Ctrl + Shift + Alt + Space and Ctrl + Shift + Alt + C for Compact Mode
         RegisterHotKey(_hwnd, _idCompact, MOD_CONTROL | MOD_SHIFT | MOD_ALT, keySpace);
+        RegisterHotKey(_hwnd, _idCompactC, MOD_CONTROL | MOD_SHIFT | MOD_ALT, keyC);
     }
 
     private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -52,7 +55,7 @@ public class HotkeyHelper : IDisposable
                 _onPopupHotKeyPressed?.Invoke();
                 handled = true;
             }
-            else if (id == _idCompact)
+            else if (id == _idCompact || id == _idCompactC)
             {
                 _onCompactHotKeyPressed?.Invoke();
                 handled = true;
@@ -63,7 +66,16 @@ public class HotkeyHelper : IDisposable
 
     public void Dispose()
     {
+        try
+        {
+            HwndSource.FromHwnd(_hwnd)?.RemoveHook(HwndHook);
+        }
+        catch
+        {
+            // Ignore if window handle is already destroyed
+        }
         UnregisterHotKey(_hwnd, _idPopup);
         UnregisterHotKey(_hwnd, _idCompact);
+        UnregisterHotKey(_hwnd, _idCompactC);
     }
 }

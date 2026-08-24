@@ -7,3 +7,7 @@
 *.sln.docstates
 .vs/
 *.log
+
+Output_Portable/
+Publish/
+.agents/

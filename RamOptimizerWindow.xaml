@@ -74,6 +74,7 @@
 
         <StackPanel Grid.Row="3" Margin="0,15,0,0">
             <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource TextPrimary}" FontSize="12" FontStyle="Italic" Margin="0,0,0,5"/>
+            <TextBlock Text="{Binding TotalSelectedSize, StringFormat=Total: {0}}" Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
             <TextBlock Text="{Binding ResultSummary}" Foreground="{StaticResource SemanticHealthy}" FontWeight="Bold" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,15"/>
         </StackPanel>
 
@@ -85,7 +86,7 @@
             <Button Grid.Column="0" Content="⟳ Làm mới" Command="{Binding LoadProcessesCommand}" Margin="0,0,10,0"
                     Background="{StaticResource SurfaceSecondary}" Foreground="{StaticResource TextPrimary}" BorderBrush="{StaticResource BorderNeutral}" Padding="10,5"/>
             <Button Grid.Column="1" Content="Tối ưu ngay" Command="{Binding OptimizeCommand}" Width="120"
-                    Background="{StaticResource SemanticInfo}" Foreground="{StaticResource TextPrimary}" BorderThickness="0" Padding="10,5"/>
+                    Style="{StaticResource PrimaryButtonStyle}"/>
         </Grid>
     </Grid>
 </Window>

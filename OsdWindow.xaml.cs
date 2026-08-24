@@ -1,4 +1,6 @@
-﻿using PCHealthDashboard.ViewModels;
+using PCHealthDashboard.ViewModels;
+using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Input;
 
@@ -8,20 +10,32 @@ namespace PCHealthDashboard
     {
         private MainViewModel? _vm;
         private bool _isDragging = false;
+        public event EventHandler? ClosedOrHidden;
 
         public OsdWindow()
         {
             InitializeComponent();
+
+            var workArea = SystemParameters.WorkArea;
+            Left = workArea.Right - 320;
+            Top = workArea.Bottom - 60;
         }
 
         public void ToggleOsd(MainViewModel vm)
         {
-            if (IsVisible) Hide();
+            _vm = vm;
+            if (IsVisible)
+            {
+                Hide();
+                vm.IsCompactMode = false;
+                ClosedOrHidden?.Invoke(this, EventArgs.Empty);
+            }
             else 
             {
                 this.DataContext = vm;
                 SyncValues(vm);
                 Show();
+                vm.IsCompactMode = true;
             }
         }
 
@@ -48,7 +62,7 @@ namespace PCHealthDashboard
             }
             else
             {
-                var parts = new System.Collections.Generic.List<string>();
+                var parts = new List<string>();
                 foreach(var g in vm.Gpus)
                 {
                     string prefix = g.IsSharedMemory ? "iGPU" : "dGPU";
@@ -63,18 +77,41 @@ namespace PCHealthDashboard
             if (e.ChangedButton == MouseButton.Left)
             {
                 _isDragging = true;
-                this.DragMove();
-                _isDragging = false;
+                try
+                {
+                    this.DragMove();
+                }
+                finally
+                {
+                    _isDragging = false;
+                }
             }
         }
 
         private void CloseCompactMode_Click(object sender, RoutedEventArgs e)
         {
+            Hide();
             if (_vm != null)
             {
                 _vm.IsCompactMode = false;
-                _vm.IsPopupVisible = true;
             }
+            ClosedOrHidden?.Invoke(this, EventArgs.Empty);
+        }
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            if (System.Windows.Application.Current != null && !System.Windows.Application.Current.Dispatcher.HasShutdownStarted)
+            {
+                e.Cancel = true;
+                Hide();
+                if (_vm != null)
+                {
+                    _vm.IsCompactMode = false;
+                }
+                ClosedOrHidden?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+            base.OnClosing(e);
         }
     }
 }

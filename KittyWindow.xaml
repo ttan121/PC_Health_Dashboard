@@ -1,7 +1,8 @@
-﻿<Window x:Class="PCHealthDashboard.KittyWindow"
+<Window x:Class="PCHealthDashboard.KittyWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:PCHealthDashboard"
+        xmlns:controls="clr-namespace:PCHealthDashboard.Views.Controls"
         Title="PC Health Popup" Width="300" MinHeight="260" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" WindowStartupLocation="Manual"
@@ -13,10 +14,10 @@
     </Window.Resources>
 
     <WindowChrome.WindowChrome>
-        <WindowChrome GlassFrameThickness="0" CornerRadius="8" CaptionHeight="0" UseAeroCaptionButtons="False" />
+        <WindowChrome GlassFrameThickness="-1" CornerRadius="8" CaptionHeight="0" UseAeroCaptionButtons="False" />
     </WindowChrome.WindowChrome>
 
-    <Border x:Name="RootBorder" Background="{StaticResource SurfacePrimary}" BorderBrush="{StaticResource BorderNeutral}" BorderThickness="1" ClipToBounds="True" CornerRadius="8">
+    <Border x:Name="RootBorder" Background="#D90a0c10" BorderBrush="{StaticResource BorderNeutral}" BorderThickness="1" ClipToBounds="True" CornerRadius="8">
         <Grid Margin="16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -32,7 +33,7 @@
                     <TextBlock x:Name="HealthScoreText" Text="92 Healthy" Style="{StaticResource TextMetricValue}"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <Button x:Name="PinButton" Content="📌" FontSize="11" Background="Transparent" Foreground="{StaticResource TextMuted}" BorderThickness="0" Padding="5,1" Cursor="Hand" Click="PinButton_Click" ToolTip="Ghim/Bá» ghim"/>
+                    <Button x:Name="PinButton" Content="📌" FontSize="11" Background="Transparent" Foreground="{StaticResource TextMuted}" BorderThickness="0" Padding="5,1" Cursor="Hand" Click="PinButton_Click" ToolTip="Ghim/Bỏ ghim"/>
                     <Button Content="✕" FontSize="12" Background="Transparent" Foreground="{StaticResource TextMuted}" BorderThickness="0" Padding="5,1" Cursor="Hand" Click="ClosePopup_Click"/>
                 </StackPanel>
             </Grid>
@@ -168,9 +169,15 @@
                         <TextBlock x:Name="NetUpText" Text="0.0" Style="{StaticResource TextBody}"/>
                     </StackPanel>
                 </Grid>
-                <!-- Sparkline -->
-                <Border Height="32" Background="{StaticResource SurfaceSecondary}" CornerRadius="4" Padding="2">
-                    <Polyline x:Name="NetworkSparkline" Stroke="{StaticResource SemanticInfo}" StrokeThickness="1.5" Stretch="Fill" />
+                <!-- High-Performance Zero-Allocation SkiaSharp Sparkline -->
+                <Border Height="36" Background="{StaticResource SurfaceSecondary}" CornerRadius="4" Padding="2" ClipToBounds="True">
+                    <controls:SkiaSparklineControl x:Name="NetworkSparkline" 
+                                                  PrimaryColor="#3b82f6" 
+                                                  SecondaryColor="#a855f7" 
+                                                  IsDualChannel="True" 
+                                                  AutoScale="True" 
+                                                  SmoothCurves="True" 
+                                                  StrokeThickness="1.5" />
                 </Border>
             </StackPanel>
 

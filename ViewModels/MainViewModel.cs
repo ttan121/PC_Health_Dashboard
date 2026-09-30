@@ -5,13 +5,16 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LibreHardwareMonitor.PawnIo;
 using PCHealthDashboard.Helpers;
 using PCHealthDashboard.Models;
 using PCHealthDashboard.Services;
 using System;
+using System.ComponentModel;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Threading;
 
 namespace PCHealthDashboard.ViewModels;
@@ -19,10 +22,17 @@ namespace PCHealthDashboard.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly HardwareMonitorService _hardwareMonitor;
+    private readonly StorageHealthService _storageHealthService;
+    private readonly ProcessMonitorService _processMonitor;
     private readonly IHealthScoreCalculator _healthCalculator;
     private readonly DispatcherTimer _timer;
     private readonly System.Threading.SemaphoreSlim _telemetrySemaphore = new(1, 1);
     private int _ramStatusVersion = 0;
+    private bool _isFirstTelemetryPoll = true;
+    private int _slowPollCounter;
+    private (float read, float write, float usedSpace, float totalSpace) _cachedStorageStats;
+    private StorageHealthSnapshot _cachedStorageHealth = StorageHealthSnapshot.Empty;
+    private (float download, float upload) _cachedNetworkStats;
 
     // Health Score & Status
     [ObservableProperty] private int _healthScore = 100;
@@ -36,6 +46,15 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<string> HealthIssues { get; } = new();
     public ObservableCollection<AlertModel> SystemAlerts { get; } = new();
+    public ObservableCollection<StorageDriveReading> StorageDrives { get; } = new();
+    public ObservableCollection<ProcessEntry> ProcessEntries { get; } = new();
+    public ICollectionView ProcessEntriesView { get; }
+    [ObservableProperty] private string _storageHealthStatus = "Đang chờ dữ liệu ổ đĩa.";
+    [ObservableProperty] private string _processOperationStatus = string.Empty;
+    [ObservableProperty] private string _processFilter = string.Empty;
+    [ObservableProperty] private bool _isEndingProcess;
+    public string ProcessSummary => $"{ProcessEntriesView.Cast<object>().Count()} / {ProcessEntries.Count}";
+    public bool IsProcessFilterEmpty => string.IsNullOrWhiteSpace(ProcessFilter);
 
     // Zero-Disk-Wear In-Memory Circular Buffers (60 seconds history)
     public RingBuffer<MetricPoint> CpuUsageHistory { get; } = new(60);
@@ -58,8 +77,19 @@ public partial class MainViewModel : ObservableObject
     // CPU Telemetry
     [ObservableProperty] private float _cpuUsage;
     [ObservableProperty] private float _cpuTemp;
+    [ObservableProperty] private float _cpuTempRaw;
+    [ObservableProperty] private string _cpuTempSource = string.Empty;
     [ObservableProperty] private float _cpuPower;
     [ObservableProperty] private float _cpuClock;
+    public string CpuTemperatureDisplay => float.IsFinite(CpuTemp) && CpuTemp > 0f ? $"{CpuTemp:F0}°C" : "N/A";
+    public string CpuTemperatureTooltip => CpuTempRaw > 0f
+        ? $"Nguồn: {CpuTempSource}; mẫu mới nhất {CpuTempRaw:F1}°C. Số hiển thị dùng trung vị tối đa 5 mẫu và làm mượt theo thời gian; cảnh báo dùng dữ liệu lọc và đưa mức từ 95°C lên ngay."
+        : "Chưa nhận được mẫu nhiệt độ CPU hợp lệ.";
+    public string CpuTemperatureStatus => CpuTemp > 0f
+        ? string.Empty
+        : PawnIo.IsInstalled
+            ? "Windows chưa cung cấp số đo sensor CPU"
+            : "Cần cài PawnIO để đọc sensor CPU";
 
     // GPU Telemetry
     public ObservableCollection<GpuStatModel> Gpus { get; } = new();
@@ -71,7 +101,11 @@ public partial class MainViewModel : ObservableObject
     // Storage Telemetry
     [ObservableProperty] private float _ssdUsedSpace;
     [ObservableProperty] private float _ssdTotalSpace;
-    [ObservableProperty] private float _ssdHealth = 100f;
+    [ObservableProperty] private float? _ssdHealth;
+    public string StorageWearSummary => SsdHealth is float remaining
+        ? $"Endurance ước tính thấp nhất trong các ổ: còn khoảng {remaining:F0}%"
+        : "Wear/SMART: Windows hoặc driver chưa cung cấp";
+    public string SystemDriveLabel => System.IO.Path.GetPathRoot(Environment.SystemDirectory) ?? "System drive";
 
     // Network Telemetry
     [ObservableProperty] private float _downloadMbps;
@@ -90,6 +124,12 @@ public partial class MainViewModel : ObservableObject
     {
         _healthCalculator = healthCalculator ?? throw new ArgumentNullException(nameof(healthCalculator));
         _hardwareMonitor = new HardwareMonitorService();
+        _storageHealthService = new StorageHealthService();
+        _processMonitor = new ProcessMonitorService();
+        ProcessEntriesView = CollectionViewSource.GetDefaultView(ProcessEntries);
+        ProcessEntriesView.Filter = MatchesProcessFilter;
+        ProcessEntriesView.SortDescriptions.Add(new SortDescription(nameof(ProcessEntry.Name), ListSortDirection.Ascending));
+        ProcessEntriesView.SortDescriptions.Add(new SortDescription(nameof(ProcessEntry.ProcessId), ListSortDirection.Ascending));
 
         var initialRam = _hardwareMonitor.GetRamStats();
         if (initialRam.total > 0)
@@ -150,22 +190,34 @@ public partial class MainViewModel : ObservableObject
 
     private async System.Threading.Tasks.Task RefreshTelemetryCoreAsync()
     {
-        (float usage, float temp, float power, float clock) cpu = default;
+        (float usage, float temp, float displayTemp, float rawTemp, string tempSource, float power, float clock) cpu = default;
         System.Collections.Generic.List<GpuStatModel> gpuStats = null!;
         (float used, float total) ram = default;
         (float read, float write, float usedSpace, float totalSpace) storage = default;
+        StorageHealthSnapshot storageHealth = StorageHealthSnapshot.Empty;
         (float download, float upload) net = default;
+        System.Collections.Generic.IReadOnlyList<ProcessReading>? processReadings = null;
 
         await System.Threading.Tasks.Task.Run(() =>
         {
             try
             {
-                _hardwareMonitor.Update();
+                _hardwareMonitor.Update(fullUpdate: _isFirstTelemetryPoll);
                 cpu = _hardwareMonitor.GetCpuStats();
                 gpuStats = _hardwareMonitor.GetGpusStats();
                 ram = _hardwareMonitor.GetRamStats();
-                storage = _hardwareMonitor.GetStorageStats();
-                net = _hardwareMonitor.GetNetworkStats();
+                if (_isFirstTelemetryPoll || ++_slowPollCounter >= 3)
+                {
+                    _isFirstTelemetryPoll = false;
+                    _slowPollCounter = 0;
+                    _cachedStorageStats = _hardwareMonitor.GetStorageStats();
+                    _cachedStorageHealth = _storageHealthService.GetSnapshot();
+                    _cachedNetworkStats = _hardwareMonitor.GetNetworkStats();
+                    processReadings = _processMonitor.GetSnapshot();
+                }
+                storage = _cachedStorageStats;
+                storageHealth = _cachedStorageHealth;
+                net = _cachedNetworkStats;
             }
             catch
             {
@@ -174,20 +226,18 @@ public partial class MainViewModel : ObservableObject
         });
 
         CpuUsage = cpu.usage;
-        CpuTemp = cpu.temp;
+        CpuTemp = cpu.displayTemp;
+        CpuTempRaw = cpu.rawTemp;
+        CpuTempSource = cpu.tempSource ?? string.Empty;
         CpuPower = cpu.power;
         CpuClock = cpu.clock;
+        if (processReadings != null)
+            UpdateProcessEntries(processReadings);
 
         if (gpuStats != null)
         {
             foreach (var stat in gpuStats)
             {
-                // Sync onboard GPU temperature to CPU
-                if (stat.IsSharedMemory || stat.Name.Contains("Intel") || stat.Name.Contains("Radeon Graphics"))
-                {
-                    stat.Temperature = cpu.temp;
-                }
-
                 var existing = Gpus.FirstOrDefault(g => g.Id == stat.Id);
                 if (existing != null)
                 {
@@ -216,6 +266,18 @@ public partial class MainViewModel : ObservableObject
 
         SsdUsedSpace = storage.usedSpace;
         SsdTotalSpace = storage.totalSpace;
+        StorageHealthStatus = storageHealth.Status;
+        if (!StorageDrives.SequenceEqual(storageHealth.Drives))
+        {
+            StorageDrives.Clear();
+            foreach (var drive in storageHealth.Drives)
+                StorageDrives.Add(drive);
+        }
+        var enduranceReadings = storageHealth.Drives
+            .Where(drive => drive.WearPercent.HasValue)
+            .Select(drive => Math.Clamp(100f - drive.WearPercent!.Value, 0f, 100f))
+            .ToArray();
+        SsdHealth = enduranceReadings.Length == 0 ? null : enduranceReadings.Min();
 
         DownloadMbps = net.download;
         UploadMbps = net.upload;
@@ -239,7 +301,9 @@ public partial class MainViewModel : ObservableObject
         var snapshot = new HardwareSnapshot(
             TimestampUtcTicks: nowTicks,
             CpuUsage: CpuUsage,
-            CpuTemp: CpuTemp,
+            // Use the robust median for scoring and warnings, with an immediate
+            // path for extreme raw readings that need a fast alert.
+            CpuTemp: cpu.rawTemp >= 95f ? cpu.rawTemp : cpu.temp,
             CpuPower: CpuPower,
             CpuClock: CpuClock,
             RamUsedGb: RamUsed,
@@ -279,8 +343,9 @@ public partial class MainViewModel : ObservableObject
         // Update Alerts and Issues
         HealthIssues.Clear();
         SystemAlerts.Clear();
+        var storageAlerts = CreateStorageAlerts();
 
-        if (evaluation.ActiveAlerts.Count == 0)
+        if (evaluation.ActiveAlerts.Count == 0 && storageAlerts.Count == 0)
         {
             SystemAlerts.Add(new AlertModel
             {
@@ -318,9 +383,256 @@ public partial class MainViewModel : ObservableObject
                     Severity = severity
                 });
             }
+
+            foreach (var alert in storageAlerts)
+            {
+                HealthIssues.Add($"{alert.Title}\n{alert.Description}");
+                SystemAlerts.Add(alert);
+            }
+
+            if (storageAlerts.Any(alert => alert.Severity == AlertSeverity.Critical))
+            {
+                HealthStatus = "Critical";
+                HealthStatusColor = "#ef4444";
+            }
+            else if (storageAlerts.Any(alert => alert.Severity == AlertSeverity.Warning))
+            {
+                HealthStatus = "Warning";
+                HealthStatusColor = "#f59e0b";
+            }
         }
 
         DataPolled?.Invoke(this, EventArgs.Empty);
+    }
+
+    partial void OnCpuTempChanged(float value)
+    {
+        OnPropertyChanged(nameof(CpuTemperatureDisplay));
+        OnPropertyChanged(nameof(CpuTemperatureStatus));
+        OnPropertyChanged(nameof(CpuTemperatureTooltip));
+    }
+
+    partial void OnCpuTempRawChanged(float value)
+    {
+        OnPropertyChanged(nameof(CpuTemperatureTooltip));
+    }
+
+    partial void OnCpuTempSourceChanged(string value)
+    {
+        OnPropertyChanged(nameof(CpuTemperatureTooltip));
+    }
+
+    partial void OnIsEndingProcessChanged(bool value)
+    {
+        EndProcessCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnProcessFilterChanged(string value)
+    {
+        ProcessEntriesView.Refresh();
+        OnPropertyChanged(nameof(IsProcessFilterEmpty));
+        OnPropertyChanged(nameof(ProcessSummary));
+    }
+
+    private bool MatchesProcessFilter(object item)
+    {
+        if (item is not ProcessEntry process)
+            return false;
+
+        var query = ProcessFilter.Trim();
+        return query.Length == 0 ||
+               process.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+               process.ProcessId.ToString().Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void UpdateProcessEntries(System.Collections.Generic.IReadOnlyList<ProcessReading> readings)
+    {
+        var retainedProcessIds = new System.Collections.Generic.HashSet<int>();
+        foreach (var reading in readings)
+        {
+            var entry = ProcessEntries.FirstOrDefault(candidate => candidate.ProcessId == reading.ProcessId);
+            if (entry != null && entry.StartTimeUtcTicks != reading.StartTimeUtcTicks)
+            {
+                ProcessEntries.Remove(entry);
+                entry = null;
+            }
+
+            if (entry == null)
+            {
+                entry = new ProcessEntry(reading);
+                var insertionIndex = 0;
+                while (insertionIndex < ProcessEntries.Count &&
+                       CompareProcessEntries(ProcessEntries[insertionIndex], entry) <= 0)
+                    insertionIndex++;
+                ProcessEntries.Insert(insertionIndex, entry);
+            }
+            else
+            {
+                entry.Update(reading);
+            }
+
+            retainedProcessIds.Add(reading.ProcessId);
+        }
+
+        for (var index = ProcessEntries.Count - 1; index >= 0; index--)
+        {
+            if (!retainedProcessIds.Contains(ProcessEntries[index].ProcessId))
+                ProcessEntries.RemoveAt(index);
+        }
+
+        OnPropertyChanged(nameof(ProcessSummary));
+    }
+
+    private static int CompareProcessEntries(ProcessEntry left, ProcessEntry right)
+    {
+        var nameOrder = StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name);
+        return nameOrder != 0 ? nameOrder : left.ProcessId.CompareTo(right.ProcessId);
+    }
+
+    private bool CanEndProcess(ProcessEntry? entry) => entry is { CanTerminate: true } && !IsEndingProcess;
+
+    [RelayCommand(CanExecute = nameof(CanEndProcess))]
+    private async System.Threading.Tasks.Task EndProcessAsync(ProcessEntry? entry)
+    {
+        if (entry == null || !entry.CanTerminate || IsEndingProcess)
+            return;
+
+        var owner = System.Windows.Application.Current?.MainWindow;
+        var confirmation = System.Windows.MessageBox.Show(
+            owner,
+            $"Yêu cầu đóng {entry.Name} (PID {entry.ProcessId})?\nCPU {entry.CpuDisplay} · RAM {entry.MemoryDisplay}\nỨng dụng sẽ được yêu cầu tự đóng trước.",
+            "Kết thúc tác vụ",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (confirmation != MessageBoxResult.Yes)
+            return;
+
+        IsEndingProcess = true;
+        try
+        {
+            var result = await _processMonitor.RequestCloseAsync(entry);
+            if (result == ProcessCloseResult.NeedsForce)
+            {
+                var forceConfirmation = System.Windows.MessageBox.Show(
+                    owner,
+                    $"{entry.Name} chưa đóng được bình thường. Buộc dừng có thể làm mất dữ liệu chưa lưu. Bạn có muốn buộc dừng riêng tiến trình này không?",
+                    "Xác nhận buộc dừng",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning,
+                    MessageBoxResult.No);
+
+                if (forceConfirmation == MessageBoxResult.Yes)
+                    result = await _processMonitor.ForceTerminateAsync(entry);
+                else
+                    ProcessOperationStatus = $"Đã hủy buộc dừng {entry.Name}.";
+            }
+
+            if (result == ProcessCloseResult.Exited)
+            {
+                ProcessOperationStatus = $"Đã đóng {entry.Name}.";
+                await RefreshTelemetryAsync();
+            }
+            else if (result == ProcessCloseResult.AccessDenied)
+            {
+                ProcessOperationStatus = $"Windows từ chối quyền đóng {entry.Name}.";
+            }
+            else if (result == ProcessCloseResult.ProcessChanged)
+            {
+                ProcessOperationStatus = "Tiến trình đã thoát hoặc PID đã được tái sử dụng; không gửi lệnh đóng.";
+            }
+            else if (result == ProcessCloseResult.ForceFailed)
+            {
+                ProcessOperationStatus = $"Đã gửi lệnh buộc dừng {entry.Name}, nhưng Windows chưa xác nhận tiến trình đã thoát.";
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException
+                                           or System.ComponentModel.Win32Exception
+                                           or UnauthorizedAccessException)
+        {
+            ProcessOperationStatus = $"Không thể đóng {entry.Name}: {exception.Message}";
+        }
+        finally
+        {
+            IsEndingProcess = false;
+        }
+    }
+
+    partial void OnSsdHealthChanged(float? value)
+    {
+        OnPropertyChanged(nameof(StorageWearSummary));
+    }
+
+    private List<AlertModel> CreateStorageAlerts()
+    {
+        var alerts = new List<AlertModel>();
+        foreach (var drive in StorageDrives)
+        {
+            if (drive.NvmeCriticalWarning is byte criticalWarning && criticalWarning != 0)
+            {
+                alerts.Add(new AlertModel
+                {
+                    Title = $"NVMe critical warning · {drive.DisplayName}",
+                    Description = drive.CriticalWarningDisplay,
+                    Metric = $"0x{criticalWarning:X2}",
+                    Recommendation = "Sao lưu dữ liệu và kiểm tra ổ bằng tiện ích của nhà sản xuất.",
+                    Severity = AlertSeverity.Critical
+                });
+            }
+            else if (drive.HealthStatusId == 2)
+            {
+                alerts.Add(new AlertModel
+                {
+                    Title = $"Ổ đĩa báo trạng thái không khỏe · {drive.DisplayName}",
+                    Description = drive.DeviceHealthDisplay,
+                    Metric = "Unhealthy",
+                    Recommendation = "Sao lưu dữ liệu và kiểm tra ổ đĩa.",
+                    Severity = AlertSeverity.Critical
+                });
+            }
+            else if (drive.HealthStatusId == 1)
+            {
+                alerts.Add(new AlertModel
+                {
+                    Title = $"Ổ đĩa có cảnh báo · {drive.DisplayName}",
+                    Description = drive.DeviceHealthDisplay,
+                    Metric = "Warning",
+                    Recommendation = "Kiểm tra chi tiết bằng tiện ích của nhà sản xuất.",
+                    Severity = AlertSeverity.Warning
+                });
+            }
+
+            if (drive.NvmeCriticalWarning is not byte warning || (warning & 0x01) == 0)
+            {
+                if (drive.AvailableSparePercent is int spare && drive.SpareThresholdPercent is int threshold && spare <= threshold)
+                {
+                    alerts.Add(new AlertModel
+                    {
+                        Title = $"Spare SSD chạm ngưỡng · {drive.DisplayName}",
+                        Description = $"Spare khả dụng {spare}%, ngưỡng cảnh báo {threshold}%.",
+                        Metric = $"{spare}%",
+                        Recommendation = "Sao lưu dữ liệu và kiểm tra ổ đĩa.",
+                        Severity = AlertSeverity.Warning
+                    });
+                }
+            }
+
+            if ((drive.MediaErrors ?? 0) > 0 || (drive.ReadErrorsUncorrected ?? 0) > 0 || (drive.WriteErrorsUncorrected ?? 0) > 0)
+            {
+                alerts.Add(new AlertModel
+                {
+                    Title = $"Ổ đĩa báo lỗi dữ liệu · {drive.DisplayName}",
+                    Description = drive.NvmeErrorCountersDisplay.Length > 0
+                        ? drive.NvmeErrorCountersDisplay
+                        : drive.UncorrectedErrorsDisplay,
+                    Metric = "Storage errors",
+                    Recommendation = "Sao lưu dữ liệu quan trọng và chẩn đoán ổ bằng công cụ của nhà sản xuất.",
+                    Severity = AlertSeverity.Warning
+                });
+            }
+        }
+
+        return alerts;
     }
 
     [RelayCommand]

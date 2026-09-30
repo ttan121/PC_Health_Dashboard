@@ -50,7 +50,7 @@
                     <TextBlock Text="CPU" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                         <TextBlock x:Name="CpuText" Text="42%" Style="{StaticResource TextBody}"/>
-                        <TextBlock x:Name="CpuTempText" Text=" 45°C" Style="{StaticResource TextLabel}" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                        <TextBlock x:Name="CpuTempText" Text=" N/A" Style="{StaticResource TextLabel}" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" Margin="4,0,0,0"/>
                     </StackPanel>
                     <Grid Grid.Column="2" Height="4" VerticalAlignment="Center">
                         <Border Background="{StaticResource SurfaceSecondary}" CornerRadius="2" />
@@ -106,7 +106,7 @@
                                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="{Binding Usage, StringFormat={}{0:F0}%}" Style="{StaticResource TextBody}"/>
-                                            <TextBlock Text="{Binding Temperature, StringFormat={}{0:F0}°C}" Style="{StaticResource TextLabel}" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                            <TextBlock Text="{Binding TemperatureDisplay}" Style="{StaticResource TextLabel}" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" Margin="4,0,0,0"/>
                                         </StackPanel>
                                         <TextBlock Text="{Binding Name}" Style="{StaticResource TextLabel}" Foreground="{StaticResource TextMuted}" Margin="0,2,0,0" FontSize="10" TextTrimming="CharacterEllipsis" MaxWidth="70" HorizontalAlignment="Left"/>
                                     </StackPanel>
@@ -143,8 +143,8 @@
                         <ColumnDefinition Width="80"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Text="SSD" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="SsdText" Grid.Column="1" Text="72%" Style="{StaticResource TextBody}" VerticalAlignment="Center"/>
+                    <TextBlock Text="Storage" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="SsdText" Grid.Column="1" Text="N/A" Style="{StaticResource TextBody}" VerticalAlignment="Center" ToolTip="{Binding StorageWearSummary}"/>
                     <Grid Grid.Column="2" Height="4" VerticalAlignment="Center">
                         <Border Background="{StaticResource SurfaceSecondary}" CornerRadius="2" />
                         <Grid>

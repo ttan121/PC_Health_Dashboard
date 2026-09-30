@@ -1,6 +1,5 @@
 using System;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Interop;
 using PCHealthDashboard.Helpers;
 using PCHealthDashboard.ViewModels;
@@ -14,6 +13,7 @@ public partial class MainWindow : Window
     private OsdWindow? _osdWindow;
     private System.Windows.Forms.NotifyIcon? _notifyIcon;
     private EventHandler? _dataPolledHandler;
+    private int _sparklineUpdateCounter = 2;
 
     public MainWindow()
     {
@@ -76,12 +76,10 @@ public partial class MainWindow : Window
     {
         if (WindowState == WindowState.Minimized)
         {
-            this.Hide(); // Completely hide to suspend main window WPF rendering loop and taskbar icon
             UpdateEfficiencyMode();
         }
-        else if (WindowState != WindowState.Minimized)
+        else
         {
-            this.Show();
             this.ShowInTaskbar = true;
             UpdateEfficiencyMode();
             if (this.DataContext is MainViewModel vm)
@@ -92,10 +90,18 @@ public partial class MainWindow : Window
         base.OnStateChanged(e);
     }
 
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        // Keep the content-sized startup height, then let Windows manage normal
+        // resizing and maximize against the monitor work area.
+        SizeToContent = SizeToContent.Manual;
+        Height = ActualHeight;
+    }
+
     private void MainWindow_SourceInitialized(object? sender, EventArgs e)
     {
         // Apply Windows 11 DWM Mica material & Dark Mode frame
-        DwmBackdropHelper.ApplyBackdrop(this, BackdropType.Mica, enableDarkMode: true);
+        DwmBackdropHelper.ApplyBackdrop(this, BackdropType.Mica, enableDarkMode: true, extendFrameIntoClientArea: false);
 
         var helper = new WindowInteropHelper(this);
         
@@ -208,7 +214,11 @@ public partial class MainWindow : Window
         // Update High-Performance SkiaSharp Sparkline if main window is visible
         if (this.Visibility == Visibility.Visible && this.WindowState != WindowState.Minimized)
         {
-            UpdateSparkline(viewModel);
+            if (++_sparklineUpdateCounter >= 3)
+            {
+                _sparklineUpdateCounter = 0;
+                UpdateSparkline(viewModel);
+            }
         }
 
         if (_kittyWindow != null && _kittyWindow.IsVisible)
@@ -251,14 +261,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void Window_MouseDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ChangedButton == MouseButton.Left)
-        {
-            this.DragMove();
-        }
-    }
-
     private void CompactWidgetButton_Click(object sender, RoutedEventArgs e)
     {
         ToggleCompactMode();
@@ -277,13 +279,4 @@ public partial class MainWindow : Window
         }
     }
 
-    private void MinimizeButton_Click(object sender, RoutedEventArgs e)
-    {
-        this.WindowState = WindowState.Minimized;
-    }
-
-    private void CloseButton_Click(object sender, RoutedEventArgs e)
-    {
-        System.Windows.Application.Current.Shutdown();
-    }
 }

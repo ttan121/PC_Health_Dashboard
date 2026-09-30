@@ -249,11 +249,15 @@ public sealed class HealthScoreCalculator : IHealthScoreCalculator
             alerts.Add($"Low Disk Space\nLess than {freeGb:F1} GB ({freePct:F0}%) free on primary drive. Junk file cleanup recommended.");
         }
 
-        // SMART Health Sub-Score
-        float smartScore = (snapshot.SsdHealth > 0f) ? Math.Clamp(snapshot.SsdHealth, 0f, 100f) : 100f;
-        if (snapshot.SsdHealth > 0f && snapshot.SsdHealth < 70f)
+        // Optional Windows/provider-reported estimated endurance remaining.
+        // Missing data is excluded instead of being treated as a healthy 100%.
+        if (snapshot.SsdHealth is not float reportedEndurance || !float.IsFinite(reportedEndurance))
+            return spaceScore;
+
+        float smartScore = Math.Clamp(reportedEndurance, 0f, 100f);
+        if (smartScore < 20f)
         {
-            alerts.Add($"Storage Wear Warning\nDrive SMART health is at {snapshot.SsdHealth:F0}%. Consider backup.");
+            alerts.Add($"Low Estimated Drive Endurance\nWindows/drive estimates about {smartScore:F0}% endurance remaining. Back up important files and check the manufacturer's drive utility.");
         }
 
         return (spaceScore * 0.5f) + (smartScore * 0.5f);

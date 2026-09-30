@@ -67,6 +67,7 @@ public readonly record struct GpuTelemetry
 /// Transferred by value across the polling pipeline to eliminate all heap allocation.
 /// Conforms to Master Project Specification Interface Contract § HardwarePollerEngine ↔ ViewModel & Storage.
 /// </summary>
+/// <param name="SsdHealth">Estimated drive endurance remaining, in percent; null means unavailable.</param>
 public readonly record struct HardwareSnapshot(
     long TimestampUtcTicks,
     float CpuUsage,
@@ -77,7 +78,7 @@ public readonly record struct HardwareSnapshot(
     float RamTotalGb,
     float SsdUsedGb,
     float SsdTotalGb,
-    float SsdHealth,
+    float? SsdHealth,
     float NetDownMbps,
     float NetUpMbps,
     int GpuCount,
@@ -99,8 +100,8 @@ public readonly record struct HardwareSnapshot(
         RamUsedGb: 0f,
         RamTotalGb: 16f,
         SsdUsedGb: 0f,
-        SsdTotalGb: 512f,
-        SsdHealth: 100f,
+        SsdTotalGb: 0f,
+        SsdHealth: null,
         NetDownMbps: 0f,
         NetUpMbps: 0f,
         GpuCount: 0,

@@ -102,6 +102,7 @@ public struct StorageBinding
 public sealed class HardwarePollerEngine : IHardwarePollerEngine
 {
     private readonly Computer _computer;
+    private readonly UpdateVisitor _updateVisitor = new();
     private readonly bool _isMockMode;
     private bool _isDisposed;
     private bool _isInitialized;
@@ -131,8 +132,8 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
     // Cached Storage Space (calculated periodically with cached DriveInfo handle)
     private DriveInfo? _systemDrive;
     private float _cachedSsdUsedGb;
-    private float _cachedSsdTotalGb = 512f;
-    private float _cachedSsdHealth = 100f;
+    private float _cachedSsdTotalGb;
+    private float? _cachedSsdHealth;
     private int _storageRefreshCounter;
 
     // Poller State & Synchronization
@@ -279,23 +280,14 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
             if (hw.HardwareType == HardwareType.Cpu)
             {
                 _cpuHardware = hw;
-                hw.Update();
+                _updateVisitor.VisitHardware(hw);
 
-                foreach (var sensor in hw.Sensors)
+                foreach (var sensor in EnumerateSensors(hw))
                 {
                     if (sensor.SensorType == SensorType.Load && _cpuLoadSensor == null)
                     {
                         if (sensor.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
                             _cpuLoadSensor = sensor;
-                    }
-                    else if (sensor.SensorType == SensorType.Temperature && _cpuTempSensor == null)
-                    {
-                        if (sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
-                            sensor.Name.Contains("Core Max", StringComparison.OrdinalIgnoreCase) ||
-                            sensor.Name.Contains("Core Average", StringComparison.OrdinalIgnoreCase))
-                        {
-                            _cpuTempSensor = sensor;
-                        }
                     }
                     else if (sensor.SensorType == SensorType.Power && _cpuPowerSensor == null)
                     {
@@ -316,13 +308,7 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
                         if (s.SensorType == SensorType.Load) { _cpuLoadSensor = s; break; }
                     }
                 }
-                if (_cpuTempSensor == null)
-                {
-                    foreach (var s in hw.Sensors)
-                    {
-                        if (s.SensorType == SensorType.Temperature) { _cpuTempSensor = s; break; }
-                    }
-                }
+                _cpuTempSensor = FindTemperatureSensor(hw, "CPU Package", "Package", "Tctl/Tdie", "Tdie", "Core Max", "Core Average", "Core");
                 if (_cpuPowerSensor == null)
                 {
                     foreach (var s in hw.Sensors)
@@ -336,7 +322,7 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
             else if (hw.HardwareType == HardwareType.Memory)
             {
                 _ramHardware = hw;
-                hw.Update();
+                _updateVisitor.VisitHardware(hw);
 
                 foreach (var sensor in hw.Sensors)
                 {
@@ -357,7 +343,7 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
             {
                 if (_gpuCount < _gpuBindings.Length)
                 {
-                    hw.Update();
+                    _updateVisitor.VisitHardware(hw);
                     ref var binding = ref _gpuBindings[_gpuCount];
                     binding.Hardware = hw;
                     binding.Name = hw.Name;
@@ -369,11 +355,7 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
 
                     foreach (var sensor in hw.Sensors)
                     {
-                        if (sensor.SensorType == SensorType.Temperature && binding.TempSensor == null)
-                        {
-                            binding.TempSensor = sensor;
-                        }
-                        else if (sensor.SensorType == SensorType.Load && binding.LoadSensor == null)
+                        if (sensor.SensorType == SensorType.Load && binding.LoadSensor == null)
                         {
                             if (sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
                                 sensor.Name.Contains("D3D 3D", StringComparison.OrdinalIgnoreCase))
@@ -399,6 +381,8 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
                             if (s.SensorType == SensorType.Load) { binding.LoadSensor = s; break; }
                         }
                     }
+
+                    binding.TempSensor = FindTemperatureSensor(hw, "GPU Core", "Core", "GPU", "Edge");
 
                     binding.VramUsedSensor = dedicatedVram ?? sharedVram;
                     binding.IsSharedMemory = (dedicatedVram == null && sharedVram != null);
@@ -435,7 +419,7 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
             {
                 if (_storageCount < _storageBindings.Length)
                 {
-                    hw.Update();
+                    _updateVisitor.VisitHardware(hw);
                     ref var binding = ref _storageBindings[_storageCount];
                     binding.Hardware = hw;
 
@@ -486,11 +470,7 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
         }
         catch
         {
-            if (_cachedSsdTotalGb <= 0f)
-            {
-                _cachedSsdTotalGb = 512f;
-                _cachedSsdUsedGb = 256f;
-            }
+            // Keep the last real reading; leave defaults at zero if the drive is unavailable.
         }
     }
 
@@ -649,8 +629,41 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
         }
     }
 
+    private static IEnumerable<ISensor> EnumerateSensors(IHardware hardware)
+    {
+        foreach (var sensor in hardware.Sensors)
+            yield return sensor;
+
+        foreach (var subHardware in hardware.SubHardware)
+        {
+            foreach (var sensor in EnumerateSensors(subHardware))
+                yield return sensor;
+        }
+    }
+
+    private static ISensor? FindTemperatureSensor(IHardware hardware, params string[] preferredNames)
+    {
+        var sensors = EnumerateSensors(hardware)
+            .Where(sensor => sensor.SensorType == SensorType.Temperature &&
+                             !sensor.Name.Contains("Distance to TjMax", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        foreach (var preferredName in preferredNames)
+        {
+            var preferred = sensors.FirstOrDefault(sensor =>
+                sensor.Name.Contains(preferredName, StringComparison.OrdinalIgnoreCase));
+            if (preferred != null)
+                return preferred;
+        }
+
+        return sensors.FirstOrDefault();
+    }
+
     private static float Sanitize(float v, float fallback = 0f) =>
         float.IsNaN(v) || float.IsInfinity(v) ? fallback : v;
+
+    private static float SanitizeTemperature(float value) =>
+        float.IsFinite(value) && value > 0f && value <= 150f ? value : 0f;
 
     /// <summary>
     /// Core Direct Poll routine.
@@ -674,7 +687,7 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
         }
 
         float cpuUsage = 0f;
-        float cpuTemp = 45f; // Sensible default if locked
+        float cpuTemp = 0f;
         float cpuPower = 0f;
         float cpuClock = 0f;
 
@@ -683,7 +696,7 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
 
         float ssdUsed = _cachedSsdUsedGb;
         float ssdTotal = _cachedSsdTotalGb;
-        float ssdHealth = _cachedSsdHealth;
+        float? ssdHealth = _cachedSsdHealth;
 
         float netDown = 0f;
         float netUp = 0f;
@@ -699,10 +712,10 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
             // 1. Core Sensors: CPU & RAM (Always polled in both Normal & Cryo mode)
             if (_cpuHardware != null)
             {
-                _cpuHardware.Update();
+                _updateVisitor.VisitHardware(_cpuHardware);
 
                 if (_cpuLoadSensor?.Value != null) cpuUsage = Sanitize(_cpuLoadSensor.Value.Value);
-                if (_cpuTempSensor?.Value != null) cpuTemp = Sanitize(_cpuTempSensor.Value.Value, 45f);
+                if (_cpuTempSensor?.Value is float cpuTemperature) cpuTemp = SanitizeTemperature(cpuTemperature);
                 if (_cpuPowerSensor?.Value != null) cpuPower = Sanitize(_cpuPowerSensor.Value.Value);
                 if (_cpuClockSensor?.Value != null) cpuClock = Sanitize(_cpuClockSensor.Value.Value);
             }
@@ -734,10 +747,10 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
                     ref var binding = ref _gpuBindings[i];
                     if (binding.Hardware != null)
                     {
-                        binding.Hardware.Update();
+                        _updateVisitor.VisitHardware(binding.Hardware);
 
                         if (binding.LoadSensor?.Value != null) gpuUsage = Sanitize(binding.LoadSensor.Value.Value);
-                        if (binding.TempSensor?.Value != null) gpuTemp = Sanitize(binding.TempSensor.Value.Value);
+                        if (binding.TempSensor?.Value is float gpuTemperature) gpuTemp = SanitizeTemperature(gpuTemperature);
 
                         if (binding.VramUsedSensor?.Value != null)
                         {
@@ -791,19 +804,19 @@ public sealed class HardwarePollerEngine : IHardwarePollerEngine
         snapshot = new HardwareSnapshot(
             TimestampUtcTicks: ticks,
             CpuUsage: Sanitize(cpuUsage),
-            CpuTemp: Sanitize(cpuTemp, 45f),
+            CpuTemp: SanitizeTemperature(cpuTemp),
             CpuPower: Sanitize(cpuPower),
             CpuClock: Sanitize(cpuClock),
             RamUsedGb: Sanitize(ramUsed),
             RamTotalGb: Sanitize(ramTotal, 16f),
             SsdUsedGb: Sanitize(ssdUsed),
-            SsdTotalGb: Sanitize(ssdTotal, 512f),
-            SsdHealth: Sanitize(ssdHealth, 100f),
+            SsdTotalGb: Sanitize(ssdTotal),
+            SsdHealth: ssdHealth,
             NetDownMbps: Sanitize(netDown),
             NetUpMbps: Sanitize(netUp),
             GpuCount: gpuCount,
             GpuUsage: Sanitize(gpuUsage),
-            GpuTemp: Sanitize(gpuTemp),
+            GpuTemp: SanitizeTemperature(gpuTemp),
             GpuVramUsedGb: Sanitize(gpuVramUsed),
             GpuVramTotalGb: Sanitize(gpuVramTotal)
         );

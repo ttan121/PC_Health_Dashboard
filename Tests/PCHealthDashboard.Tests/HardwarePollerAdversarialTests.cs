@@ -185,7 +185,7 @@ public class HardwarePollerAdversarialTests
         poller.PollDirect(out var snap);
 
         Assert.Equal(0f, snap.CpuUsage);
-        Assert.Equal(45f, snap.CpuTemp);
+        Assert.Equal(0f, snap.CpuTemp);
         Assert.True(snap.RamTotalGb > 0f);
         Assert.Equal(0, snap.GpuCount);
 

@@ -1,64 +1,49 @@
-﻿# PC Health Dashboard
+# PC Health Dashboard
 
-*Đọc bằng ngôn ngữ khác: [English](README.md).*
+*Read in English: [README](README.md).*
 
-![PC Health Dashboard](https://via.placeholder.com/800x450.png?text=Them+Anh+Man+Hinh+Tai+Day)
+> **Nắm nhanh tình trạng PC của bạn trên một màn hình.**
 
-PC Health Dashboard là một công cụ quản lý tác vụ và giám sát phần cứng cấp độ hệ thống dành cho Windows. Phần mềm cung cấp thông số theo thời gian thực, tối ưu hóa bộ nhớ chuyên sâu và giao diện đẹp mắt, được thiết kế với tiêu chí tối ưu hiệu năng tuyệt đối và bảo vệ tuổi thọ phần cứng.
+PC Health Dashboard là ứng dụng Windows tập trung các chỉ số phần cứng và hệ thống thường dùng vào cùng một nơi. Ứng dụng giúp bạn theo dõi tải CPU/GPU, nhiệt độ cảm biến, mức dùng RAM, dung lượng ổ đĩa và lưu lượng mạng, kèm một số công cụ bảo trì thường ngày.
 
-## Mục Lục
-- [Tính Năng Chính](#tinh-nang-chinh)
-- [Công Nghệ Sử Dụng](#cong-nghe-su-dung)
-- [Hướng Dẫn Cài Đặt](#huong-dan-cai-dat)
-- [Cơ Chế Hoạt Động](#co-che-hoat-dong)
-- [Đóng Góp Phát Triển](#dong-gop-phat-trien)
-- [Bản Quyền](#ban-quyen)
+## Why — Tại sao
 
-## Tính Năng Chính
-- **Giám sát Phần cứng Thời gian thực**: Theo dõi CPU, GPU, RAM, Ổ cứng và Mạng với độ chính xác cao nhờ lõi \LibreHardwareMonitorLib\.
-- **Chấm điểm Sức khỏe Thông minh**: Cung cấp điểm số hệ thống từ 0-100 được tính toán qua thuật toán EWMA (Trung bình động có trọng số mũ). Cơ chế này giúp loại bỏ các biến động nhiệt độ ảo để phản ánh đúng thực trạng máy tính.
-- **Chống chai SSD (Zero-Disk-Wear)**: Lịch sử thông số (để vẽ biểu đồ) được lưu hoàn toàn trên RAM bằng cấu trúc \RingBuffer\ an toàn luồng. Việc này chặn hoàn toàn các chu kỳ ghi dữ liệu liên tục ra ổ cứng, giúp kéo dài tuổi thọ SSD.
-- **Dọn RAM Chuyên sâu (NT Kernel)**: Sử dụng trực tiếp mã lệnh lõi của Windows NT (\NtSetSystemInformation\) để giải phóng triệt để vùng nhớ Standby List và Modified Page List. Thao tác này trả lại RAM cho hệ thống một cách chuẩn xác như phần mềm RAMMap của Microsoft, mà không làm treo giao diện.
-- **Dọn rác Ổ đĩa An toàn**: Xóa rác hệ thống, bộ nhớ đệm trình duyệt và file tạm với cơ chế xử lý lỗi an toàn, tự động bỏ qua các file đang bị hệ thống khóa.
-- **Giao diện Siêu mượt**: Biểu đồ phần cứng được vẽ trực tiếp vào bộ nhớ bằng thư viện đồ họa \SkiaSharp\ (đạt 60 FPS, vượt trội hoàn toàn so với WPF Polyline thông thường) kết hợp với hiệu ứng nền xuyên thấu Mica/Acrylic gốc của Windows 11 qua DWM API.
-- **Chế độ Ngủ đông & Widget**: Ứng dụng có thể thu nhỏ thành Widget hoặc nằm ẩn trong khay hệ thống (System Tray). Ở chế độ "Cryo Mode", mức tiêu thụ CPU giảm xuống dưới 1% nhưng hệ thống giám sát vẫn chạy ngầm mượt mà.
+Khi máy nóng, chậm hoặc hoạt động không ổn định, thông tin cần xem thường nằm rải rác trong Task Manager, phần mềm theo dõi phần cứng và cài đặt Windows. Dashboard gom các chỉ số và cảnh báo phổ biến để bạn nhanh chóng nhận ra thay đổi và biết nên kiểm tra tiếp ở đâu.
 
-## Công Nghệ Sử Dụng
-- **Nền tảng**: .NET 10, Windows Presentation Foundation (WPF)
-- **Kiến trúc**: MVVM (Model-View-ViewModel)
-- **Đồ họa**: SkiaSharp cho hiệu ứng vẽ 2D tốc độ cao, không cấp phát rác (zero-allocation)
-- **Giao tiếp Hệ thống**: LibreHardwareMonitorLib, gọi P/Invoke trực tiếp vào Windows NT Kernel và Shell32
-- **Giao diện**: Custom XAML kết hợp Windows 11 Desktop Window Manager (Mica/Acrylic)
+Điểm sức khỏe chỉ là phần tóm tắt một số chỉ số, không phải kết quả chẩn đoán được chứng nhận cho máy tính hay linh kiện.
 
-## Hướng Dẫn Cài Đặt
-### Cách 1: Sử dụng File Cài đặt
-1. Truy cập mục [Releases](https://github.com/ttan121/PC_Health_Dashboard/releases) trên GitHub.
-2. Tải về file \PCHealthDashboard_Setup.exe\.
-3. Chạy file cài đặt và làm theo hướng dẫn trên màn hình.
-4. Chạy phần mềm với quyền **Administrator** (Bắt buộc để phần mềm có thể lấy thông số cảm biến và gọi API dọn RAM sâu).
+## Who — Dành cho ai
 
-### Cách 2: Bản Portable (Chạy ngay không cần cài đặt)
-1. Tải file \PCHealthDashboard_Portable.zip\ từ trang Releases.
-2. Giải nén vào một thư mục bất kỳ.
-3. Chạy file \PCHealthDashboard.exe\ với quyền **Administrator**.
+Ứng dụng dành cho người dùng Windows muốn xem tổng quan hệ thống một cách dễ hiểu. Người chơi game, lập trình viên, người sáng tạo nội dung và người yêu thích phần cứng có thể quan sát tải và nhiệt độ khi chơi, làm việc hoặc xử lý sự cố. Ứng dụng phù hợp cho việc kiểm tra hằng ngày, không thay thế công cụ chẩn đoán của nhà sản xuất hoặc trình quản lý tác vụ đầy đủ.
 
-### Tự Build từ Mã nguồn
-1. Clone repo về máy:
-   \\\ash
-   git clone https://github.com/ttan121/PC_Health_Dashboard.git
-   \\\
-2. Mở thư mục và chạy lệnh xuất file:
-   \\\ash
-   cd PC_Health_Dashboard
-   dotnet publish -c Release -r win-x64 -o Publish
-   \\\
-3. Mở file \setup.iss\ bằng Inno Setup để tạo file cài đặt.
+## What — Chức năng
 
-## Cơ Chế Hoạt Động
-Khác với các phần mềm "tối ưu RAM" rẻ tiền thường dùng lệnh \EmptyWorkingSet\ (ép các phần mềm đang chạy đẩy dữ liệu ra ổ cứng, gây giật lag máy), PC Health Dashboard tương tác thẳng với Kernel để dọn dẹp **Standby List**. Điều này có nghĩa là nó chỉ dọn những phần bộ nhớ đệm (cache) mà hệ điều hành không còn dùng nữa, giữ cho các ứng dụng bạn đang mở vẫn chạy cực kỳ mượt mà.
+- **CPU và đồ họa:** tải hiện tại cùng nhiệt độ mà cảm biến khả dụng cung cấp.
+- **Bộ nhớ:** lượng RAM đang dùng và tổng RAM, kèm cửa sổ tùy chọn bảo trì RAM.
+- **Ổ đĩa:** dung lượng ổ hệ thống. Giá trị `SSD Health` đang hiển thị chỉ là giá trị giữ chỗ; phiên bản mã nguồn này **chưa đọc dữ liệu hao mòn SMART/NVMe** và không thể báo tuổi thọ SSD.
+- **Mạng:** tốc độ tải xuống/tải lên và biểu đồ lưu lượng ngắn hạn. Các trường ping và mất gói đang hiển thị chưa được nối với dữ liệu cập nhật trực tiếp.
+- **Tình trạng hệ thống:** điểm sức khỏe và một số cảnh báo về nhiệt độ, tải, bộ nhớ và dung lượng ổ thấp. Điểm mạng hiện cố định, còn đầu vào SSD Health dùng giá trị mặc định nên không đánh giá được chính xác chất lượng mạng hay độ hao mòn ổ.
+- **Bảo trì và hiển thị:** công cụ bảo trì RAM, dọn file tạm, widget desktop và chế độ hiển thị thu gọn.
 
-## Đóng Góp Phát Triển
-Dự án luôn hoan nghênh mọi đóng góp! Nếu bạn có ý tưởng cải tiến, sửa lỗi hay tính năng mới, vui lòng mở một Issue hoặc tạo Pull Request.
+## How — Cách hoạt động
 
-## Bản Quyền
-Dự án được phân phối dưới giấy phép MIT License. Xem file \LICENSE\ để biết thêm chi tiết.
+Ứng dụng dùng WPF trên nền .NET. Ứng dụng đọc cảm biến CPU/GPU qua LibreHardwareMonitor, lấy thông tin bộ nhớ và dung lượng ổ qua giao diện Windows, đồng thời lấy mẫu lưu lượng mạng. Các điểm dữ liệu gần đây của biểu đồ được giữ trong RAM thay vì ghi liên tục xuống ổ đĩa.
+
+Khả năng đọc cảm biến tùy thuộc PC, firmware, phiên bản Windows và driver. Một số trường GPU hoặc nhiệt độ có thể không có hoặc dùng số liệu thay thế. `app.manifest` yêu cầu quyền Administrator nên Windows sẽ hiện hộp thoại UAC khi mở ứng dụng.
+
+## Điều kiện và build
+
+- Windows x64.
+- Khi chạy cần chấp nhận hộp thoại Administrator/UAC.
+- Build từ mã nguồn cần **.NET 10 SDK** và Internet cho lần khôi phục gói NuGet đầu tiên. Bản framework-dependent cần .NET 10 Desktop Runtime trên máy chạy; lệnh self-contained bên dưới đóng gói kèm runtime.
+
+```powershell
+dotnet restore PCHealthDashboard.slnx
+dotnet publish PCHealthDashboard.csproj -c Release -r win-x64 --self-contained true -o Publish
+```
+
+Nén toàn bộ thư mục `Publish` để tạo bản portable. Muốn tạo bộ cài, cài **Inno Setup 6** rồi mở `setup.iss`; kết quả được ghi vào `Installer`.
+
+## License
+
+MIT. Xem [LICENSE](LICENSE).

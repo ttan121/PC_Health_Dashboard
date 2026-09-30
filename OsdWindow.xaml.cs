@@ -49,7 +49,7 @@ namespace PCHealthDashboard
             if (_isDragging) return;
 
             float ramPct = vm.RamTotal > 0 ? (vm.RamUsed / vm.RamTotal) * 100f : 0;
-            OsdCpu.Text = $"{System.Math.Round(vm.CpuUsage)}% ({System.Math.Round(vm.CpuTemp)}°C)";
+            OsdCpu.Text = $"{System.Math.Round(vm.CpuUsage)}% ({vm.CpuTemperatureDisplay})";
             OsdRam.Text = $"{System.Math.Round(ramPct)}%";
             
             if (vm.Gpus.Count == 0)
@@ -58,7 +58,7 @@ namespace PCHealthDashboard
             }
             else if (vm.Gpus.Count == 1)
             {
-                OsdGpu.Text = $"{System.Math.Round(vm.Gpus[0].Usage)}%";
+                OsdGpu.Text = $"{System.Math.Round(vm.Gpus[0].Usage)}% ({vm.Gpus[0].TemperatureDisplay})";
             }
             else
             {
@@ -66,7 +66,7 @@ namespace PCHealthDashboard
                 foreach(var g in vm.Gpus)
                 {
                     string prefix = g.IsSharedMemory ? "iGPU" : "dGPU";
-                    parts.Add($"{prefix} {System.Math.Round(g.Usage)}%");
+                    parts.Add($"{prefix} {System.Math.Round(g.Usage)}% ({g.TemperatureDisplay})");
                 }
                 OsdGpu.Text = string.Join(" ", parts);
             }

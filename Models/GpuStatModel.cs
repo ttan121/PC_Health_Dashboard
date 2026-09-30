@@ -16,4 +16,11 @@ public partial class GpuStatModel : ObservableObject
     
     // Whether VRAM telemetry is available at all
     [ObservableProperty] private bool _isVramAvailable;
+
+    public string TemperatureDisplay => float.IsFinite(Temperature) && Temperature > 0f ? $"{Temperature:F0}°C" : "N/A";
+
+    partial void OnTemperatureChanged(float value)
+    {
+        OnPropertyChanged(nameof(TemperatureDisplay));
+    }
 }

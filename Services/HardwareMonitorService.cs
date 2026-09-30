@@ -1,8 +1,11 @@
 using LibreHardwareMonitor.Hardware;
+using LibreHardwareMonitor.PawnIo;
 using PCHealthDashboard.Models;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Management;
 
 namespace PCHealthDashboard.Services;
 
@@ -28,6 +31,13 @@ public class HardwareMonitorService : IDisposable
     private IHardware? _cpu;
     private readonly List<IHardware> _gpus = new();
     private IHardware? _ram;
+    private DateTime _nextDellCpuTemperatureReadUtc = DateTime.MinValue;
+    private float _cachedDellCpuTemperature;
+    private readonly float[] _cpuTemperatureSamples = new float[5];
+    private int _cpuTemperatureSampleCount;
+    private int _cpuTemperatureSampleIndex;
+    private float _smoothedCpuTemperature;
+    private long _lastCpuTemperatureTimestamp;
 
     public HardwareMonitorService()
     {
@@ -73,58 +83,165 @@ public class HardwareMonitorService : IDisposable
         lock (_syncLock)
         {
             _updateCounter++;
-            try
+            if (_cpu != null)
             {
-                _cpu?.Update();
-                _ram?.Update();
-                foreach (var gpu in _gpus)
-                {
-                    gpu.Update();
-                }
+                try { _updateVisitor.VisitHardware(_cpu); } catch { }
+            }
 
-                // Only full update storage/network every 3 ticks to save CPU
-                if (fullUpdate || _updateCounter % 3 == 0)
+            if (_ram != null)
+            {
+                try { _updateVisitor.VisitHardware(_ram); } catch { }
+            }
+
+            foreach (var gpu in _gpus)
+            {
+                try { _updateVisitor.VisitHardware(gpu); } catch { }
+            }
+
+            // Only full update storage/network every 3 ticks to save CPU
+            if (fullUpdate || _updateCounter % 3 == 0)
+            {
+                foreach (var hw in _computer.Hardware)
                 {
-                    foreach (var hw in _computer.Hardware)
+                    if (hw.HardwareType == HardwareType.Storage || hw.HardwareType == HardwareType.Network)
                     {
-                        if (hw.HardwareType == HardwareType.Storage || hw.HardwareType == HardwareType.Network)
-                        {
-                            hw.Update();
-                        }
+                        try { _updateVisitor.VisitHardware(hw); } catch { }
                     }
                 }
             }
-            catch { }
         }
     }
 
-    public (float usage, float temp, float power, float clock) GetCpuStats()
+    public (float usage, float temp, float displayTemp, float rawTemp, string tempSource, float power, float clock) GetCpuStats()
     {
         lock (_syncLock)
         {
-            float load = 0f, temp = 0f, power = 0f, clock = 0f;
+            float load = 0f, rawTemp = 0f, power = 0f, clock = 0f;
+            string tempSource = string.Empty;
             if (_cpu != null)
             {
-                var loadSensor = _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name.Contains("Total"));
-                var tempSensor = _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature && s.Name.Contains("Package"))
-                              ?? _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature && s.Name.Contains("Core Max"))
-                              ?? _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature && s.Name.Contains("Core Average"))
-                              ?? _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
-                var powerSensor = _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Power && s.Name.Contains("Package"));
-                var clockSensor = _cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Clock);
+                var sensors = EnumerateSensors(_cpu).ToList();
+                var loadSensor = sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name.Contains("Total", StringComparison.OrdinalIgnoreCase));
+                var tempSensor = FindCpuTemperatureSensor(sensors);
+                var powerSensor = sensors.FirstOrDefault(s => s.SensorType == SensorType.Power && s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase));
+                var clockSensor = sensors.FirstOrDefault(s => s.SensorType == SensorType.Clock);
 
                 if (loadSensor?.Value != null) load = loadSensor.Value.Value;
-                if (tempSensor?.Value != null) temp = tempSensor.Value.Value;
+                rawTemp = ReadTemperature(tempSensor);
+                if (rawTemp > 0f)
+                    tempSource = tempSensor?.Name ?? string.Empty;
+                else
+                {
+                    rawTemp = ReadDellCpuTemperature();
+                    if (rawTemp > 0f)
+                        tempSource = "Dell BIOS sensor";
+                }
                 if (powerSensor?.Value != null) power = powerSensor.Value.Value;
                 if (clockSensor?.Value != null) clock = clockSensor.Value.Value;
-
-                if (temp == 0f)
-                {
-                    temp = 45f; // User requested fallback to 45 if IC is locked/unreadable
-                }
             }
-            return (load, temp, power, clock);
+
+            var temp = FilterCpuTemperature(rawTemp);
+            var displayTemp = SmoothCpuTemperature(temp, rawTemp);
+            return (load, temp, displayTemp, rawTemp, tempSource, power, clock);
         }
+    }
+
+    private static ISensor? FindCpuTemperatureSensor(IReadOnlyCollection<ISensor> sensors)
+    {
+        var validSensors = sensors
+            .Where(sensor => sensor.SensorType == SensorType.Temperature && ReadTemperature(sensor) > 0f)
+            .ToList();
+
+        // Prefer a package/die-wide sensor over an individual core. Core 0 can
+        // briefly spike while the package average remains stable.
+        var packageSensor = validSensors.FirstOrDefault(sensor =>
+            sensor.Name.Contains("CPU Package", StringComparison.OrdinalIgnoreCase))
+            ?? validSensors.FirstOrDefault(sensor =>
+                sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase));
+        if (packageSensor != null)
+            return packageSensor;
+
+        var rankedSensor = validSensors
+            .Select(sensor => new { Sensor = sensor, Rank = GetCpuTemperatureSensorRank(sensor.Name) })
+            .Where(candidate => candidate.Rank < 4)
+            .OrderBy(candidate => candidate.Rank)
+            .ThenByDescending(candidate => ReadTemperature(candidate.Sensor))
+            .Select(candidate => candidate.Sensor)
+            .FirstOrDefault();
+        if (rankedSensor != null)
+            return rankedSensor;
+
+        // Firmware that exposes only per-core values: report the hottest core
+        // instead of whichever core happens to be listed first.
+        return validSensors
+            .Where(sensor => sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(ReadTemperature)
+            .FirstOrDefault()
+            ?? validSensors.OrderByDescending(ReadTemperature).FirstOrDefault();
+    }
+
+    private static int GetCpuTemperatureSensorRank(string name)
+    {
+        if (name.Contains("Tctl/Tdie", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("Tdie", StringComparison.OrdinalIgnoreCase))
+            return 0;
+        if (name.Contains("Core Max", StringComparison.OrdinalIgnoreCase))
+            return 1;
+        if (name.Contains("Core Average", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("Die (Average)", StringComparison.OrdinalIgnoreCase))
+            return 2;
+        return 4;
+    }
+
+    private float FilterCpuTemperature(float rawTemperature)
+    {
+        if (rawTemperature <= 0f)
+        {
+            _cpuTemperatureSampleCount = 0;
+            _cpuTemperatureSampleIndex = 0;
+            _smoothedCpuTemperature = 0f;
+            _lastCpuTemperatureTimestamp = 0;
+            return 0f;
+        }
+
+        _cpuTemperatureSamples[_cpuTemperatureSampleIndex] = rawTemperature;
+        _cpuTemperatureSampleIndex = (_cpuTemperatureSampleIndex + 1) % _cpuTemperatureSamples.Length;
+        _cpuTemperatureSampleCount = Math.Min(_cpuTemperatureSampleCount + 1, _cpuTemperatureSamples.Length);
+
+        Span<float> samples = stackalloc float[_cpuTemperatureSampleCount];
+        for (var index = 0; index < _cpuTemperatureSampleCount; index++)
+            samples[index] = _cpuTemperatureSamples[index];
+        samples.Sort();
+
+        return _cpuTemperatureSampleCount switch
+        {
+            1 => samples[0],
+            2 => (samples[0] + samples[1]) / 2f,
+            _ => samples[1]
+        };
+    }
+
+    private float SmoothCpuTemperature(float filteredTemperature, float rawTemperature)
+    {
+        if (filteredTemperature <= 0f)
+            return 0f;
+
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (_smoothedCpuTemperature <= 0f || rawTemperature >= 95f)
+        {
+            _smoothedCpuTemperature = rawTemperature >= 95f ? rawTemperature : filteredTemperature;
+            _lastCpuTemperatureTimestamp = now;
+            return _smoothedCpuTemperature;
+        }
+
+        var elapsedSeconds = _lastCpuTemperatureTimestamp == 0
+            ? 1d
+            : Math.Clamp(System.Diagnostics.Stopwatch.GetElapsedTime(_lastCpuTemperatureTimestamp, now).TotalSeconds, 0.1d, 5d);
+        var timeConstantSeconds = filteredTemperature >= _smoothedCpuTemperature ? 2d : 3.5d;
+        var alpha = (float)(1d - Math.Exp(-elapsedSeconds / timeConstantSeconds));
+        _smoothedCpuTemperature += (filteredTemperature - _smoothedCpuTemperature) * alpha;
+        _lastCpuTemperatureTimestamp = now;
+        return _smoothedCpuTemperature;
     }
 
     public List<GpuStatModel> GetGpusStats()
@@ -142,12 +259,13 @@ public class HardwareMonitorService : IDisposable
                     VramTotal = 8f // Default fallback
                 };
 
-                var tempSensor = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
-                var loadSensor = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name.Contains("Core"))
-                                 ?? gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load);
+                var sensors = EnumerateSensors(gpu).ToList();
+                var tempSensor = FindTemperatureSensor(gpu, "GPU Core", "Core", "GPU", "Edge");
+                var loadSensor = sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
+                                 ?? sensors.FirstOrDefault(s => s.SensorType == SensorType.Load);
                 
-                var dedicatedVramSensor = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Dedicated Memory Used"));
-                var sharedVramSensor = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Used"));
+                var dedicatedVramSensor = sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Dedicated Memory Used", StringComparison.OrdinalIgnoreCase));
+                var sharedVramSensor = sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Used", StringComparison.OrdinalIgnoreCase));
                 
                 var vramSensor = dedicatedVramSensor ?? sharedVramSensor;
                 
@@ -158,7 +276,7 @@ public class HardwareMonitorService : IDisposable
                     stat.VramUsed = vramSensor.Value.GetValueOrDefault() / 1024f; // MB to GB
                 }
 
-                var vramTotalSensor = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Total"));
+                var vramTotalSensor = sensors.FirstOrDefault(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Memory Total", StringComparison.OrdinalIgnoreCase));
                 if (vramTotalSensor?.Value != null) 
                 {
                     stat.VramTotal = vramTotalSensor.Value.Value / 1024f; // MB to GB
@@ -169,7 +287,7 @@ public class HardwareMonitorService : IDisposable
                     stat.VramTotal = GetRamStats().total; // Just a rough estimate if missing
                 }
                 
-                if (tempSensor?.Value != null) stat.Temperature = tempSensor.Value.Value;
+                stat.Temperature = ReadTemperature(tempSensor);
                 if (loadSensor?.Value != null) stat.Usage = loadSensor.Value.Value;
                 
                 result.Add(stat);
@@ -177,6 +295,112 @@ public class HardwareMonitorService : IDisposable
             
             return result;
         }
+    }
+
+    private static IEnumerable<ISensor> EnumerateSensors(IHardware hardware)
+    {
+        foreach (var sensor in hardware.Sensors)
+            yield return sensor;
+
+        foreach (var subHardware in hardware.SubHardware)
+        {
+            foreach (var sensor in EnumerateSensors(subHardware))
+                yield return sensor;
+        }
+    }
+
+    private static ISensor? FindTemperatureSensor(IHardware hardware, params string[] preferredNames)
+    {
+        var sensors = EnumerateSensors(hardware)
+            .Where(sensor => sensor.SensorType == SensorType.Temperature &&
+                             !sensor.Name.Contains("Distance to TjMax", StringComparison.OrdinalIgnoreCase) &&
+                             ReadTemperature(sensor) > 0f)
+            .ToList();
+
+        foreach (var preferredName in preferredNames)
+        {
+            var preferred = sensors.FirstOrDefault(sensor =>
+                sensor.Name.Contains(preferredName, StringComparison.OrdinalIgnoreCase));
+            if (preferred != null)
+                return preferred;
+        }
+
+        return sensors.FirstOrDefault();
+    }
+
+    private static float ReadTemperature(ISensor? sensor)
+    {
+        if (sensor?.Value is float value && float.IsFinite(value) && value > 0f && value <= 150f)
+            return value;
+
+        return 0f;
+    }
+
+    private float ReadDellCpuTemperature()
+    {
+        var now = DateTime.UtcNow;
+        if (now < _nextDellCpuTemperatureReadUtc)
+            return _cachedDellCpuTemperature;
+
+        // Dell Command Monitor exposes BIOS-backed temperatures through WMI on supported systems.
+        // Cache the lookup so a missing provider is not queried on every telemetry tick.
+        _nextDellCpuTemperatureReadUtc = now.AddSeconds(5);
+        _cachedDellCpuTemperature = 0f;
+
+        try
+        {
+            var scope = new ManagementScope(@"\\.\root\dcim\sysman");
+            scope.Connect();
+
+            using var searcher = new ManagementObjectSearcher(
+                scope,
+                new ObjectQuery("SELECT * FROM DCIM_NumericSensor WHERE SensorType = 2"));
+            using var sensors = searcher.Get();
+
+            foreach (ManagementObject sensor in sensors)
+            {
+                var name = string.Join(" ", new[]
+                {
+                    Convert.ToString(sensor["ElementName"], CultureInfo.InvariantCulture),
+                    Convert.ToString(sensor["Name"], CultureInfo.InvariantCulture),
+                    Convert.ToString(sensor["Description"], CultureInfo.InvariantCulture)
+                });
+
+                if (!name.Contains("CPU", StringComparison.OrdinalIgnoreCase) &&
+                    !name.Contains("Processor", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (sensor["CurrentReading"] is not IConvertible readingValue)
+                    continue;
+
+                var reading = readingValue.ToDouble(CultureInfo.InvariantCulture);
+                var unit = Convert.ToInt32(sensor["BaseUnits"], CultureInfo.InvariantCulture);
+                var modifier = sensor["UnitModifier"] is IConvertible modifierValue
+                    ? modifierValue.ToInt32(CultureInfo.InvariantCulture)
+                    : 0;
+
+                reading *= Math.Pow(10, modifier);
+                reading = unit switch
+                {
+                    2 => reading,                         // Degrees Celsius
+                    3 => (reading - 32d) * 5d / 9d,      // Degrees Fahrenheit
+                    4 => reading - 273.15d,               // Kelvin
+                    _ => double.NaN
+                };
+
+                if (double.IsFinite(reading) && reading > 0d && reading <= 150d)
+                {
+                    _cachedDellCpuTemperature = (float)reading;
+                    break;
+                }
+            }
+        }
+        catch
+        {
+            // The WMI provider is optional; keep the LHM result unavailable if it is absent.
+        }
+
+        return _cachedDellCpuTemperature;
     }
 
     public (float used, float total) GetRamStats()
@@ -221,8 +445,6 @@ public class HardwareMonitorService : IDisposable
             {
                 var readSensor = hw.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Data && s.Name.Contains("Read Rate"));
                 var writeSensor = hw.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Data && s.Name.Contains("Write Rate"));
-                var loadSensor = hw.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name.Contains("Used Space"));
-                
                 if (readSensor?.Value != null) read += readSensor.Value.Value;
                 if (writeSensor?.Value != null) write += writeSensor.Value.Value;
             }
@@ -231,8 +453,9 @@ public class HardwareMonitorService : IDisposable
         // Use DriveInfo for accurate space
         try
         {
-            var drive = System.IO.DriveInfo.GetDrives().FirstOrDefault(d => d.IsReady && d.DriveType == System.IO.DriveType.Fixed);
-            if (drive != null)
+            string systemRoot = System.IO.Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
+            var drive = new System.IO.DriveInfo(systemRoot);
+            if (drive.IsReady && drive.DriveType == System.IO.DriveType.Fixed)
             {
                 totalSpace = drive.TotalSize / (1024f * 1024f * 1024f); // GB
                 usedSpace = totalSpace - (drive.AvailableFreeSpace / (1024f * 1024f * 1024f));

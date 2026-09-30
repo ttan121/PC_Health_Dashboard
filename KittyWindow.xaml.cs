@@ -66,12 +66,12 @@ public partial class KittyWindow : Window
         // Skip updates while the user is dragging the popup – this drops UI work during move
         if (_isDragging) return;
 
-        HealthScoreText.Text = $"{vm.HealthScore} Healthy";
+        HealthScoreText.Text = $"{vm.HealthScore} {vm.HealthStatus}";
 
         // ── CPU ──
         float cpu = Math.Clamp(float.IsNaN(vm.CpuUsage) ? 0f : vm.CpuUsage, 0f, 100f);
         CpuText.Text = $"{cpu:F0}%";
-        CpuTempText.Text = $" {(float.IsNaN(vm.CpuTemp) ? 0f : vm.CpuTemp):F0}°C";
+        CpuTempText.Text = $" {vm.CpuTemperatureDisplay}";
         CpuFill.Width = new GridLength(cpu, GridUnitType.Star);
         CpuEmpty.Width = new GridLength(100f - cpu, GridUnitType.Star);
 

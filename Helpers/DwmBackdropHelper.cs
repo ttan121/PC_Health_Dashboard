@@ -58,12 +58,16 @@ public static class DwmBackdropHelper
     /// <param name="backdrop">Target backdrop type (Mica, Acrylic, MicaAlt).</param>
     /// <param name="enableDarkMode">Whether to enable immersive dark mode frame.</param>
     /// <returns>True if applied successfully; false otherwise.</returns>
-    public static bool ApplyBackdrop(Window window, BackdropType backdrop = BackdropType.Mica, bool enableDarkMode = true)
+    public static bool ApplyBackdrop(
+        Window window,
+        BackdropType backdrop = BackdropType.Mica,
+        bool enableDarkMode = true,
+        bool extendFrameIntoClientArea = true)
     {
         if (window == null) return false;
         var helper = new WindowInteropHelper(window);
         IntPtr hwnd = helper.EnsureHandle();
-        return ApplyBackdrop(hwnd, backdrop, enableDarkMode);
+        return ApplyBackdrop(hwnd, backdrop, enableDarkMode, extendFrameIntoClientArea);
     }
 
     /// <summary>
@@ -73,7 +77,11 @@ public static class DwmBackdropHelper
     /// <param name="backdrop">Target backdrop type.</param>
     /// <param name="enableDarkMode">Whether to enable immersive dark mode.</param>
     /// <returns>True if applied successfully; false otherwise.</returns>
-    public static bool ApplyBackdrop(IntPtr hwnd, BackdropType backdrop = BackdropType.Mica, bool enableDarkMode = true)
+    public static bool ApplyBackdrop(
+        IntPtr hwnd,
+        BackdropType backdrop = BackdropType.Mica,
+        bool enableDarkMode = true,
+        bool extendFrameIntoClientArea = true)
     {
         if (hwnd == IntPtr.Zero) return false;
 
@@ -103,8 +111,11 @@ public static class DwmBackdropHelper
             }
 
             // 3. Extend Frame into Client Area
-            var margins = new MARGINS { cxLeftWidth = -1, cxRightWidth = -1, cyTopHeight = -1, cyBottomHeight = -1 };
-            DwmExtendFrameIntoClientArea(hwnd, ref margins);
+            if (extendFrameIntoClientArea)
+            {
+                var margins = new MARGINS { cxLeftWidth = -1, cxRightWidth = -1, cyTopHeight = -1, cyBottomHeight = -1 };
+                DwmExtendFrameIntoClientArea(hwnd, ref margins);
+            }
 
             // 4. Apply System Backdrop (Win11 22H2+ Build >= 22621) or Legacy Mica (Win11 21H2 Build 22000)
             if (build >= 22621)
